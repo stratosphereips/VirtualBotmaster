@@ -29,14 +29,16 @@
 import getopt
 import sys
 import os
+import time
 from datetime import datetime
 from datetime import timedelta
+import threading
+import Queue
+
 ####################
 # Global Variables
-
 debug = 0
 vernum = "0.1"
-verbose = False
 #########
 
 
@@ -57,57 +59,124 @@ def version():
 
 # Print help information and exit:
 def usage():
-    print "+----------------------------------------------------------------------+"
-    print "| VirtualBotmaster.py Version "+ vernum +"                             |"
-    print "| This program is free software; you can redistribute it and/or modify |"
-    print "| it under the terms of the GNU General Public License as published by |"
-    print "| the Free Software Foundation; either version 2 of the License, or    |"
-    print "| (at your option) any later version.                                  |"
-    print "|                                                                      |"
-    print "| Author: Garcia Sebastian, eldraco@gmail.com                          |"
-    print "| UNICEN-ISISTAN, Argentina. CTU, Prague-ATG                           |"
-    print "+----------------------------------------------------------------------+"
+    version()
     print "\nusage: %s <options>" % sys.argv[0]
     print "options:"
     print "  -h, --help                 Show this help message and exit"
     print "  -V, --version              Output version information and exit"
-    print "  -v, --verbose              Output more information."
-    print "  -D, --debug                Debug."
+    print "  -D, --debug                Debug level. From 0 (no debug) to 5 (more debug)."
     print
     sys.exit(1)
 
 
+class Network(threading.Thread):
+    """
+    A class thread to run the output in the network
+    """
+    global debug
+    def __init__(self, qbotmaster_network, qbotnet_network, qbot_network, qCC_network):
+        threading.Thread.__init__(self)
+        self.qbotmaster_network = qbotmaster_network
+        self.qbotnet_network = qbotnet_network
+        self.qbot_network = qbot_network
+        self.qCC_network = qCC_network
+
+    def run(self):
+        while True:
+            print 'Network thread'
+            time.sleep(1)
 
 
+
+class Botnet(threading.Thread):
+    """
+    A class thread to run the botnet
+    """
+    global debug
+    def __init__(self, qbotmaster_botnet, qbotnet_network, qbot_network, qCC_network):
+        threading.Thread.__init__(self)
+        self.qbotmaster_botnet = qbotmaster_botnet
+        self.qbotnet_network = qbotnet_network
+        self.qbot_network = qbot_network
+        self.qCC_network = qCC_network
+
+    def sleep(self,time):
+        """
+        """
+        if debug:
+            print 'Sleeping {}'.format(seconds)
+        time.sleep(time)
+
+    def run(self):
+        """
+        Start
+        """
+        while (True):
+            print 'Botnet thread:'
+            time.sleep(1)
+
+
+
+class BotMaster(threading.Thread):
+    """
+    A class thread to run the botmaster code.
+    """
+    global debug
+    def __init__(self):
+        threading.Thread.__init__(self)
+
+    def run(self):
+
+        # Create the network 
+        ###################
+        # Create the queue
+        qbotmaster_network = Queue.Queue()
+        qbotnet_network = Queue.Queue()
+        qbot_network = Queue.Queue()
+        qCC_network = Queue.Queue()
+        
+        # Create the thread
+        if debug > 0:
+            print 'Creating the network thread.'
+        network = Network(qbotmaster_network, qbotnet_network, qbot_network, qCC_network)
+        network.start()
+
+        # Create the botnet
+        ###################
+        # Create the queue
+        qbotmaster_botnet = Queue.Queue()
+        
+        # Create the thread
+        if debug > 0:
+            print 'Creating the botnet thread.'
+        botnet = Botnet(qbotmaster_botnet, qbotnet_network, qbot_network, qCC_network)
+        botnet.start()
+
+        while True:
+            print 'BotMaster thread:'
+            time.sleep(1)
 
 
 def main():
     try:
         global debug
-        global verbose
+        opts, args = getopt.getopt(sys.argv[1:], "hVD:", ["help","version","debug="])
 
-        opts, args = getopt.getopt(sys.argv[1:], "hVvD", ["help","version","verbose","debug"])
     except getopt.GetoptError: usage()
 
     for opt, arg in opts:
         if opt in ("-h", "--help"): usage()
-        if opt in ("-V", "--version"): version();exit(-1)
-        if opt in ("-v", "--verbose"): verbose = True
-        if opt in ("-D", "--debug"): debug = 1
+        if opt in ("-V", "--version"): usage()
+        if opt in ("-D", "--debug"): debug = int(arg)
     try:
-        try:
-            if debug:
-                verbose = True
-            print 'Hi'
 
-            else:
-                usage()
-                sys.exit(1)
+        if debug:
+            verbose = True
 
-        except Exception, e:
-            print "misc. exception (runtime error from user callback?):", e
-        except KeyboardInterrupt:
-            sys.exit(1)
+        # Create the botmaster 
+        ######################
+        botmaster = BotMaster()
+        botmaster.start()
 
 
     except KeyboardInterrupt:
