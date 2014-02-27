@@ -32,8 +32,8 @@ import os
 import time
 from datetime import datetime
 from datetime import timedelta
-import threading
-import Queue
+import multiprocessing
+from multiprocessing import Queue
 
 ####################
 # Global Variables
@@ -69,36 +69,74 @@ def usage():
     sys.exit(1)
 
 
-class Network(threading.Thread):
+class Network(multiprocessing.Process):
     """
     A class thread to run the output in the network
     """
     global debug
-    def __init__(self, qbotmaster_network, qbotnet_network, qbot_network, qCC_network):
-        threading.Thread.__init__(self)
-        self.qbotmaster_network = qbotmaster_network
-        self.qbotnet_network = qbotnet_network
-        self.qbot_network = qbot_network
-        self.qCC_network = qCC_network
+    def __init__(self, qnetwork):
+        multiprocessing.Process.__init__(self)
+        self.qnetwork = qnetwork
 
     def run(self):
-        while True:
+        try:
+
             print 'Network thread'
-            time.sleep(1)
+            while True:
+                flow = self.qnetwork.get()
+                print flow
+
+        except KeyboardInterrupt:
+            print 'Network stopped.'
+        except Exception as inst:
+            if debug:
+                print '\tProblem with Network()'
+            print type(inst)     # the exception instance
+            print inst.args      # arguments stored in .args
+            print inst           # __str__ allows args to printed directly
+            sys.exit(1)
+
+
+class Bot(multiprocessing.Process):
+    """
+    A class thread to run the bot
+    """
+    global debug
+    def __init__(self, qbotnet_bot, qnetwork):
+        multiprocessing.Process.__init__(self)
+        self.qbotnet_bot = qbotnet_bot
+        self.qnetwork = qnetwork
+
+    def run(self):
+        try:
+            while (True):
+                print 'Bot thread:'
+                self.qnetwork.put('Bot flow')
+                time.sleep(1)
+
+        except KeyboardInterrupt:
+            print 'Bot stopped.'
+        except Exception as inst:
+            if debug:
+                print '\tProblem with bot()'
+            print type(inst)     # the exception instance
+            print inst.args      # arguments stored in .args
+            print inst           # __str__ allows args to printed directly
+            sys.exit(1)
 
 
 
-class Botnet(threading.Thread):
+
+
+class Botnet(multiprocessing.Process):
     """
     A class thread to run the botnet
     """
     global debug
-    def __init__(self, qbotmaster_botnet, qbotnet_network, qbot_network, qCC_network):
-        threading.Thread.__init__(self)
+    def __init__(self, qbotmaster_botnet, qnetwork):
+        multiprocessing.Process.__init__(self)
         self.qbotmaster_botnet = qbotmaster_botnet
-        self.qbotnet_network = qbotnet_network
-        self.qbot_network = qbot_network
-        self.qCC_network = qCC_network
+        self.qnetwork = qnetwork
 
     def sleep(self,time):
         """
@@ -108,53 +146,89 @@ class Botnet(threading.Thread):
         time.sleep(time)
 
     def run(self):
-        """
-        Start
-        """
-        while (True):
-            print 'Botnet thread:'
-            time.sleep(1)
+        try:
+
+            # Create the bot
+            ###################
+            # Create the queue
+            qbotnet_bot = Queue()
+            
+            # Create the thread
+            if debug > 0:
+                print 'Creating the bot thread.'
+            bot = Bot(qbotnet_bot, self.qnetwork)
+            bot.start()
+
+
+            while (True):
+                print 'Botnet thread:'
+                self.qnetwork.put('test')
+                time.sleep(1)
+
+        except KeyboardInterrupt:
+            bot.terminate()
+            print 'Botnet stopped.'
+        except Exception as inst:
+            if debug:
+                print '\tProblem with botnet()'
+            print type(inst)     # the exception instance
+            print inst.args      # arguments stored in .args
+            print inst           # __str__ allows args to printed directly
+            sys.exit(1)
 
 
 
-class BotMaster(threading.Thread):
+class BotMaster(multiprocessing.Process):
     """
     A class thread to run the botmaster code.
     """
     global debug
     def __init__(self):
-        threading.Thread.__init__(self)
+        multiprocessing.Process.__init__(self)
 
     def run(self):
+        try:
 
-        # Create the network 
-        ###################
-        # Create the queue
-        qbotmaster_network = Queue.Queue()
-        qbotnet_network = Queue.Queue()
-        qbot_network = Queue.Queue()
-        qCC_network = Queue.Queue()
-        
-        # Create the thread
-        if debug > 0:
-            print 'Creating the network thread.'
-        network = Network(qbotmaster_network, qbotnet_network, qbot_network, qCC_network)
-        network.start()
+            # Create the network 
+            ###################
+            # Create the queue
+            qnetwork = Queue()
+            
+            # Create the thread
+            if debug > 0:
+                print 'Creating the network thread.'
+            network = Network(qnetwork)
+            network.start()
 
-        # Create the botnet
-        ###################
-        # Create the queue
-        qbotmaster_botnet = Queue.Queue()
-        
-        # Create the thread
-        if debug > 0:
-            print 'Creating the botnet thread.'
-        botnet = Botnet(qbotmaster_botnet, qbotnet_network, qbot_network, qCC_network)
-        botnet.start()
+            # Create the botnet
+            ###################
+            # Create the queue
+            qbotmaster_botnet = Queue()
+            
+            # Create the thread
+            if debug > 0:
+                print 'Creating the botnet thread.'
+            botnet = Botnet(qbotmaster_botnet, qnetwork)
+            botnet.start()
 
-        while True:
-            print 'BotMaster thread:'
-            time.sleep(1)
+            while True:
+                print 'BotMaster thread:'
+                time.sleep(1)
+
+        except KeyboardInterrupt:
+            #print 'Stopping Botnet...'
+            #botnet.terminate()
+            #print 'Stopping Network...'
+            #network.terminate()
+            print 'Botmaster stopped.'
+        except Exception as inst:
+            if debug:
+                print '\tProblem with botmaster()'
+            print type(inst)     # the exception instance
+            print inst.args      # arguments stored in .args
+            print inst           # __str__ allows args to printed directly
+            sys.exit(-1)
+
 
 
 def main():
@@ -182,7 +256,7 @@ def main():
     except KeyboardInterrupt:
         # CTRL-C pretty handling.
         print "Keyboard Interruption!. Exiting."
-        sys.exit(1)
+        botmaster.terminate()
 
 
 if __name__ == '__main__':
