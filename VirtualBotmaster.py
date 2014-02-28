@@ -35,6 +35,7 @@ from datetime import timedelta
 import multiprocessing
 from multiprocessing import Queue
 from multiprocessing import JoinableQueue
+import random
 
 ####################
 # Global Variables
@@ -113,10 +114,47 @@ class CC(multiprocessing.Process):
         self.qbot_CC = qbot_CC
         self.qnetwork = qnetwork
         self.accel = float(accel)
-        #self.periodicity = float( 1 * 60 ) # Should be In minutes, thats why we multiply by 60.
-        self.periodicity = float( 1 ) # Should be In minutes, thats why we multiply by 60.
+        # 1 minutes
+        self.periodicity = float( 1 * 60 ) # Should be In minutes, thats why we multiply by 60.
+        # 10 seconds
+        self.down_periodicity = float( 10 ) # Should be In minutes, thats why we multiply by 60.
         self.flow_separator = ' '
         self.CC_initialized = False
+        # Botnet time. Starts now.
+        self.bt = datetime.now()
+        self.init_states()
+        self.is_down = False
+
+
+    def init_states(self):
+        """
+        Define the states and set the iterator
+        """
+        states = ['Idle','commandActivity', 'maintenanceActivity', 'DownCC', 'InitCC']
+        self.iter_states = iter(states)
+
+
+    def get_state(self):
+        """
+        Returns the next state the CC should be on.
+        """
+        # Basic probabilistic changes
+        # 96% being idle
+        # 2% being down
+        # 2% being maintenanceActivity
+        probability = random.randrange(0,100)
+
+        #if debug:
+        #    print 'Probability: {}'.format(probability)
+
+        if self.is_down:
+            return 'DownCC'
+        elif probability <= 98:
+            return 'Idle'
+        elif probability > 98 and probability <= 99:
+            return 'DownCC'
+        elif probability > 99 and probability <= 100:
+            return 'maintenanceActivity'
 
 
     def asleep(self,t):
@@ -124,8 +162,10 @@ class CC(multiprocessing.Process):
         Sleep time that can be accelerated
         """
         time.sleep(t/self.accel)
-
-
+        time_diff = timedelta(seconds=t)
+        self.bt += time_diff
+        #if debug:
+            #print 'Real time: {}, Botnet time: {}'.format(datetime.now(), self.bt)
 
 
     def be_idle(self):
@@ -136,7 +176,7 @@ class CC(multiprocessing.Process):
 
             # Select the values for each field of the flow according to the Markov Chain
             # StartTime Dur Proto SrcAddr Sport Dir DstAddr Dport State sTos dTos TotPkts TotBytes Label
-            starttime = str(datetime.now())
+            starttime = str(self.bt)
             dur = "20"
             proto = "tcp"
             srcaddr = "10.0.0.1"
@@ -159,7 +199,7 @@ class CC(multiprocessing.Process):
 
         except Exception as inst:
             if debug:
-                print '\tProblem with be_idle in bot class'
+                print '\tProblem with be_idle in CC class'
             print type(inst)     # the exception instance
             print inst.args      # arguments stored in .args
             print inst           # __str__ allows args to printed directly
@@ -174,7 +214,7 @@ class CC(multiprocessing.Process):
 
             # Select the values for each field of the flow according to the Markov Chain
             # StartTime Dur Proto SrcAddr Sport Dir DstAddr Dport State sTos dTos TotPkts TotBytes Label
-            starttime = str(datetime.now())
+            starttime = str(self.bt)
             dur = "20"
             proto = "tcp"
             srcaddr = "10.0.0.1"
@@ -199,7 +239,122 @@ class CC(multiprocessing.Process):
 
         except Exception as inst:
             if debug:
-                print '\tProblem with be_starting in bot class'
+                print '\tProblem with be_starting in CC class'
+            print type(inst)     # the exception instance
+            print inst.args      # arguments stored in .args
+            print inst           # __str__ allows args to printed directly
+            sys.exit(1)
+
+
+    def be_commandActivity(self):
+        """
+        Actions of command activity
+        """
+        try:
+
+            # Select the values for each field of the flow according to the Markov Chain
+            # StartTime Dur Proto SrcAddr Sport Dir DstAddr Dport State sTos dTos TotPkts TotBytes Label
+            starttime = str(self.bt)
+            dur = "20"
+            proto = "tcp"
+            srcaddr = "10.0.0.1"
+            sport = "2102"
+            dir = "->"
+            dstaddr = "201.23.1.4"
+            dport = "80"
+            state = "FSPA_FSA"
+            tos = "0"
+            packets = "14"
+            bytes = "1200"
+            label = ""
+
+            flow = starttime + self.flow_separator + dur + self.flow_separator + proto + self.flow_separator + srcaddr + self.flow_separator + sport + self.flow_separator + dir + self.flow_separator + dstaddr + self.flow_separator + dport + self.flow_separator + state + self.flow_separator + tos + self.flow_separator + packets + self.flow_separator + bytes + self.flow_separator + label
+
+            self.qnetwork.put(flow)
+
+            # We were idle so wait for the next iteration
+            self.asleep(self.periodicity)
+
+        except Exception as inst:
+            if debug:
+                print '\tProblem with be_commandActivity in CC class'
+            print type(inst)     # the exception instance
+            print inst.args      # arguments stored in .args
+            print inst           # __str__ allows args to printed directly
+            sys.exit(1)
+
+
+    def be_maintenanceActivity(self):
+        """
+        Actions of maintenance activity
+        """
+        try:
+
+            # Select the values for each field of the flow according to the Markov Chain
+            # StartTime Dur Proto SrcAddr Sport Dir DstAddr Dport State sTos dTos TotPkts TotBytes Label
+            starttime = str(self.bt)
+            dur = "30"
+            proto = "tcp"
+            srcaddr = "10.0.0.1"
+            sport = "2102"
+            dir = "->"
+            dstaddr = "201.23.1.4"
+            dport = "80"
+            state = "FSPA_FSA"
+            tos = "0"
+            packets = "1"
+            bytes = "10"
+            label = ""
+
+            flow = starttime + self.flow_separator + dur + self.flow_separator + proto + self.flow_separator + srcaddr + self.flow_separator + sport + self.flow_separator + dir + self.flow_separator + dstaddr + self.flow_separator + dport + self.flow_separator + state + self.flow_separator + tos + self.flow_separator + packets + self.flow_separator + bytes + self.flow_separator + label
+
+            self.qnetwork.put(flow)
+
+            # We were idle so wait for the next iteration
+            self.asleep(self.periodicity)
+
+        except Exception as inst:
+            if debug:
+                print '\tProblem with be_maintenanceActivity in CC class'
+            print type(inst)     # the exception instance
+            print inst.args      # arguments stored in .args
+            print inst           # __str__ allows args to printed directly
+            sys.exit(1)
+
+
+    def be_down(self):
+        """
+        Actions of down activity
+        """
+        try:
+
+            # Select the values for each field of the flow according to the Markov Chain
+            # StartTime Dur Proto SrcAddr Sport Dir DstAddr Dport State sTos dTos TotPkts TotBytes Label
+            starttime = str(self.bt)
+            dur = "0"
+            proto = "tcp"
+            srcaddr = "10.0.0.1"
+            sport = "2102"
+            dir = "->"
+            dstaddr = "201.23.1.4"
+            dport = "80"
+            state = "SPA_*"
+            tos = "0"
+            packets = "1"
+            bytes = "20"
+            label = ""
+
+            flow = starttime + self.flow_separator + dur + self.flow_separator + proto + self.flow_separator + srcaddr + self.flow_separator + sport + self.flow_separator + dir + self.flow_separator + dstaddr + self.flow_separator + dport + self.flow_separator + state + self.flow_separator + tos + self.flow_separator + packets + self.flow_separator + bytes + self.flow_separator + label
+
+            self.qnetwork.put(flow)
+
+            # We were idle so wait for the next iteration
+            self.asleep(self.down_periodicity)
+            self.is_down = True
+
+        except Exception as inst:
+            if debug:
+                print '\tProblem with be_down in CC class'
             print type(inst)     # the exception instance
             print inst.args      # arguments stored in .args
             print inst           # __str__ allows args to printed directly
@@ -221,14 +376,23 @@ class CC(multiprocessing.Process):
                     if order == 'Start':
                         self.be_starting()
 
+                    elif order == 'CommandActivity':
+                        self.be_commandActivity()
+
                     elif order == 'Stop':
                         if debug:
                             print '\t\t\tCC: stopping.'
                         break
 
                 elif self.CC_initialized:
-                    # No orders, so be Idle
-                    self.be_idle()
+                    # No orders, so search for the next state
+                    nextstate = self.get_state()
+                    if nextstate == 'Idle':
+                        self.be_idle()
+                    elif nextstate == 'DownCC':
+                        self.be_down()
+                    elif nextstate == 'maintenanceActivity':
+                        self.be_maintenanceActivity()
 
 
         except KeyboardInterrupt:
@@ -254,13 +418,15 @@ class Bot(multiprocessing.Process):
         self.qbotnet_bot = qbotnet_bot
         self.qnetwork = qnetwork
         self.accel = float(accel)
-
+        self.bt = datetime.now()
 
     def asleep(self,t):
         """
         Sleep time that can be accelerated
         """
         time.sleep(t/self.accel)
+        time_diff = timedelta(seconds=t)
+        self.bt += time_diff
 
 
     def run(self):
@@ -327,12 +493,15 @@ class Botnet(multiprocessing.Process):
         self.qbotmaster_botnet = qbotmaster_botnet
         self.qnetwork = qnetwork
         self.accel = float(accel)
+        self.bt = datetime.now()
 
     def asleep(self,t):
         """
         Sleep time that can be accelerated
         """
         time.sleep(t/self.accel)
+        time_diff = timedelta(seconds=t)
+        self.bt += time_diff
 
     def run(self):
         try:
@@ -393,8 +562,9 @@ class BotMaster(multiprocessing.Process):
     global debug
     def __init__(self, accel):
         multiprocessing.Process.__init__(self)
-        self.init_states()
         self.accel = float(accel)
+        self.bt = datetime.now()
+        self.init_states()
 
 
     def init_states(self):
@@ -418,6 +588,9 @@ class BotMaster(multiprocessing.Process):
         Sleep time that can be accelerated
         """
         time.sleep(t/self.accel)
+        time_diff = timedelta(seconds=t)
+        self.bt += time_diff
+
 
     def wait_next_state(self):
         """
@@ -427,8 +600,7 @@ class BotMaster(multiprocessing.Process):
 
         # Get a time with gauss mu=10 and std=1
         t = random.gauss(10,1)
-        #self.asleep(t * 60) # Should be minutes
-        self.asleep(t) # Should be minutes
+        self.asleep(t * 60) # Should be minutes
 
 
     def run(self):
