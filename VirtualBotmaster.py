@@ -34,6 +34,7 @@ from datetime import datetime
 from datetime import timedelta
 import multiprocessing
 from multiprocessing import Queue
+from multiprocessing import JoinableQueue
 
 ####################
 # Global Variables
@@ -65,6 +66,7 @@ def usage():
     print "  -h, --help                 Show this help message and exit"
     print "  -V, --version              Output version information and exit"
     print "  -D, --debug                Debug level. From 0 (no debug) to 5 (more debug)."
+    print "  -x, --accel                Acceleration time. 2 for 2x, 10 for 10x"
     print
     sys.exit(1)
 
@@ -81,13 +83,16 @@ class Network(multiprocessing.Process):
     def run(self):
         try:
 
-            print 'Network thread'
+            if debug:
+                print 'Network thread Started'
+
             while True:
                 flow = self.qnetwork.get()
                 print flow
 
         except KeyboardInterrupt:
-            print 'Network stopped.'
+            if debug:
+                print 'Network: stopped.'
         except Exception as inst:
             if debug:
                 print '\tProblem with Network()'
@@ -97,25 +102,209 @@ class Network(multiprocessing.Process):
             sys.exit(1)
 
 
+
+class CC(multiprocessing.Process):
+    """
+    A class thread to run a CC
+    """
+    global debug
+    def __init__(self, accel, qbot_CC, qnetwork):
+        multiprocessing.Process.__init__(self)
+        self.qbot_CC = qbot_CC
+        self.qnetwork = qnetwork
+        self.accel = float(accel)
+        #self.periodicity = float( 1 * 60 ) # Should be In minutes, thats why we multiply by 60.
+        self.periodicity = float( 1 ) # Should be In minutes, thats why we multiply by 60.
+        self.flow_separator = ' '
+        self.CC_initialized = False
+
+
+    def asleep(self,t):
+        """
+        Sleep time that can be accelerated
+        """
+        time.sleep(t/self.accel)
+
+
+
+
+    def be_idle(self):
+        """
+        Actions of being idle
+        """
+        try:
+
+            # Select the values for each field of the flow according to the Markov Chain
+            # StartTime Dur Proto SrcAddr Sport Dir DstAddr Dport State sTos dTos TotPkts TotBytes Label
+            starttime = str(datetime.now())
+            dur = "20"
+            proto = "tcp"
+            srcaddr = "10.0.0.1"
+            sport = "2102"
+            dir = "->"
+            dstaddr = "201.23.1.4"
+            dport = "80"
+            state = "FSPA_FSA"
+            tos = "0"
+            packets = "9"
+            bytes = "530"
+            label = ""
+
+            flow = starttime + self.flow_separator + dur + self.flow_separator + proto + self.flow_separator + srcaddr + self.flow_separator + sport + self.flow_separator + dir + self.flow_separator + dstaddr + self.flow_separator + dport + self.flow_separator + state + self.flow_separator + tos + self.flow_separator + packets + self.flow_separator + bytes + self.flow_separator + label
+
+            self.qnetwork.put(flow)
+
+            # We were idle so wait for the next iteration
+            self.asleep(self.periodicity)
+
+        except Exception as inst:
+            if debug:
+                print '\tProblem with be_idle in bot class'
+            print type(inst)     # the exception instance
+            print inst.args      # arguments stored in .args
+            print inst           # __str__ allows args to printed directly
+            sys.exit(1)
+
+
+    def be_starting(self):
+        """
+        Actions of starting
+        """
+        try:
+
+            # Select the values for each field of the flow according to the Markov Chain
+            # StartTime Dur Proto SrcAddr Sport Dir DstAddr Dport State sTos dTos TotPkts TotBytes Label
+            starttime = str(datetime.now())
+            dur = "20"
+            proto = "tcp"
+            srcaddr = "10.0.0.1"
+            sport = "2102"
+            dir = "->"
+            dstaddr = "201.23.1.4"
+            dport = "80"
+            state = "FSPA_FSA"
+            tos = "0"
+            packets = "9"
+            bytes = "200"
+            label = ""
+
+            flow = starttime + self.flow_separator + dur + self.flow_separator + proto + self.flow_separator + srcaddr + self.flow_separator + sport + self.flow_separator + dir + self.flow_separator + dstaddr + self.flow_separator + dport + self.flow_separator + state + self.flow_separator + tos + self.flow_separator + packets + self.flow_separator + bytes + self.flow_separator + label
+
+            self.qnetwork.put(flow)
+
+            # We were idle so wait for the next iteration
+            self.asleep(self.periodicity)
+
+            self.CC_initialized = True
+
+        except Exception as inst:
+            if debug:
+                print '\tProblem with be_starting in bot class'
+            print type(inst)     # the exception instance
+            print inst.args      # arguments stored in .args
+            print inst           # __str__ allows args to printed directly
+            sys.exit(1)
+
+
+    def run(self):
+        try:
+
+            if debug:
+                print '\t\t\tCC: started'
+
+            while (True):
+
+                # Check if we have msg from botnet
+                if not self.qbot_CC.empty():
+                    order = self.qbot_CC.get(0.1)
+
+                    if order == 'Start':
+                        self.be_starting()
+
+                    elif order == 'Stop':
+                        if debug:
+                            print '\t\t\tCC: stopping.'
+                        break
+
+                elif self.CC_initialized:
+                    # No orders, so be Idle
+                    self.be_idle()
+
+
+        except KeyboardInterrupt:
+            if debug:
+                print '\t\t\tCC stopped.'
+        except Exception as inst:
+            if debug:
+                print '\tProblem with CC()'
+            print type(inst)     # the exception instance
+            print inst.args      # arguments stored in .args
+            print inst           # __str__ allows args to printed directly
+            sys.exit(1)
+
+
+
 class Bot(multiprocessing.Process):
     """
     A class thread to run the bot
     """
     global debug
-    def __init__(self, qbotnet_bot, qnetwork):
+    def __init__(self, accel, qbotnet_bot, qnetwork):
         multiprocessing.Process.__init__(self)
         self.qbotnet_bot = qbotnet_bot
         self.qnetwork = qnetwork
+        self.accel = float(accel)
+
+
+    def asleep(self,t):
+        """
+        Sleep time that can be accelerated
+        """
+        time.sleep(t/self.accel)
+
 
     def run(self):
         try:
+
+            if debug:
+                print '\t\tBot: started'
+
             while (True):
-                print 'Bot thread:'
-                self.qnetwork.put('Bot flow')
-                time.sleep(1)
+                # Check if we have msg from botnet
+                if not self.qbotnet_bot.empty():
+                    order = self.qbotnet_bot.get(0.1)
+                    if order == 'Start':
+
+                        # Create the CC when the bot starts
+                        ###############
+                        # Create the queue
+                        self.qbot_CC = JoinableQueue()
+                        
+                        # Create the thread
+                        self.cc1 = CC(self.accel, self.qbot_CC, self.qnetwork)
+                        self.cc1.start()
+    
+                        # Test the network
+                        self.qbot_CC.put(order)
+
+                    elif order == 'Stop':
+                        self.qbot_CC.put(order)
+                        self.qbot_CC.join()
+                        if debug:
+                            print '\t\tBot: stopping.'
+                        break
+                else:
+                    #if debug:
+                    #    print '\t\tBot: Idle...'
+                    #self.qnetwork.put('Bot: Normal flow')
+                    #self.asleep(1)
+                    pass
+
 
         except KeyboardInterrupt:
-            print 'Bot stopped.'
+            if debug:
+                print '\t\tBot stopped.'
+            self.cc1.terminate()
         except Exception as inst:
             if debug:
                 print '\tProblem with bot()'
@@ -133,41 +322,60 @@ class Botnet(multiprocessing.Process):
     A class thread to run the botnet
     """
     global debug
-    def __init__(self, qbotmaster_botnet, qnetwork):
+    def __init__(self, accel, qbotmaster_botnet, qnetwork):
         multiprocessing.Process.__init__(self)
         self.qbotmaster_botnet = qbotmaster_botnet
         self.qnetwork = qnetwork
+        self.accel = float(accel)
 
-    def sleep(self,time):
+    def asleep(self,t):
         """
+        Sleep time that can be accelerated
         """
-        if debug:
-            print 'Sleeping {}'.format(seconds)
-        time.sleep(time)
+        time.sleep(t/self.accel)
 
     def run(self):
         try:
 
-            # Create the bot
-            ###################
-            # Create the queue
-            qbotnet_bot = Queue()
-            
-            # Create the thread
-            if debug > 0:
-                print 'Creating the bot thread.'
-            bot = Bot(qbotnet_bot, self.qnetwork)
-            bot.start()
 
+            if debug:
+                print '\tBotnet: starting {}'.format(datetime.now())
 
             while (True):
-                print 'Botnet thread:'
-                self.qnetwork.put('test')
-                time.sleep(1)
+
+                # Check if we have msg from botmaster
+                if not self.qbotmaster_botnet.empty():
+                    order = self.qbotmaster_botnet.get()
+
+                    if order == 'Start':
+
+                        # Create the bot when the botnet starts
+                        ###################
+                        # Create the queue
+                        self.qbotnet_bot = Queue()
+                        
+                        # Create the thread
+                        self.bot = Bot(self.accel, self.qbotnet_bot, self.qnetwork)
+                        self.bot.start()
+            
+                        self.qbotnet_bot.put(order)
+
+                    elif order == 'Stop':
+                        self.qbotnet_bot.put(order)
+                        if debug:
+                            print '\tBotnet: stopping.'
+                        break
+                else:
+                    #if debug:
+                    #    print '\tBotnet: Idle {}'.format(datetime.now())
+                    #self.asleep(1)
+                    pass
+
 
         except KeyboardInterrupt:
-            bot.terminate()
-            print 'Botnet stopped.'
+            if debug:
+                print '\tBotnet: stopped.'
+            self.bot.terminate()
         except Exception as inst:
             if debug:
                 print '\tProblem with botnet()'
@@ -183,43 +391,95 @@ class BotMaster(multiprocessing.Process):
     A class thread to run the botmaster code.
     """
     global debug
-    def __init__(self):
+    def __init__(self, accel):
         multiprocessing.Process.__init__(self)
+        self.init_states()
+        self.accel = float(accel)
+
+
+    def init_states(self):
+        """
+        Define the states and set the iterator
+        """
+        states = ['Start','Nothing', 'Nothing', 'Nothing', 'Nothing', 'Stop']
+        self.iter_states = iter(states)
+
+
+    def get_state(self):
+        """
+        Returns the next state the botmaster should be on.
+        """
+        next_state = next(self.iter_states)
+        return next_state
+    
+
+    def asleep(self,t):
+        """
+        Sleep time that can be accelerated
+        """
+        time.sleep(t/self.accel)
+
+    def wait_next_state(self):
+        """
+        Function that knows how much time to wait between states
+        """
+        import random
+
+        # Get a time with gauss mu=10 and std=1
+        t = random.gauss(10,1)
+        #self.asleep(t * 60) # Should be minutes
+        self.asleep(t) # Should be minutes
+
 
     def run(self):
         try:
+            if debug:
+                print 'BotMaster: started'
 
             # Create the network 
             ###################
             # Create the queue
-            qnetwork = Queue()
+            self.qnetwork = Queue()
             
             # Create the thread
-            if debug > 0:
-                print 'Creating the network thread.'
-            network = Network(qnetwork)
-            network.start()
+            self.network = Network(self.qnetwork)
+            self.network.start()
 
             # Create the botnet
             ###################
             # Create the queue
-            qbotmaster_botnet = Queue()
+            self.qbotmaster_botnet = Queue()
             
             # Create the thread
-            if debug > 0:
-                print 'Creating the botnet thread.'
-            botnet = Botnet(qbotmaster_botnet, qnetwork)
-            botnet.start()
+            self.botnet = Botnet(self.accel, self.qbotmaster_botnet, self.qnetwork)
+            self.botnet.start()
+
 
             while True:
-                print 'BotMaster thread:'
-                time.sleep(1)
+                # Get new state
+                newstate = self.get_state()
+                
+                if newstate == 'Start' or newstate == 'Stop':
+
+                    if debug:
+                        print 'Botmaster: sending state {} to botnet.'.format(newstate)
+                    self.qbotmaster_botnet.put(newstate)
+                else:
+                    if debug:
+                        print 'Botmaster: doing state {}.'.format(newstate)
+
+                if newstate == 'Stop':
+                    self.qbotmaster_botnet.put(newstate)
+                    self.network.terminate()
+                    if debug:
+                        print 'Botmaster: stopping.'
+                    break
+
+                self.wait_next_state()
 
         except KeyboardInterrupt:
-            #print 'Stopping Botnet...'
-            #botnet.terminate()
-            #print 'Stopping Network...'
-            #network.terminate()
+            self.botnet.terminate()
+            self.network.terminate()
             print 'Botmaster stopped.'
         except Exception as inst:
             if debug:
@@ -234,7 +494,9 @@ class BotMaster(multiprocessing.Process):
 def main():
     try:
         global debug
-        opts, args = getopt.getopt(sys.argv[1:], "hVD:", ["help","version","debug="])
+        accel = 1
+        
+        opts, args = getopt.getopt(sys.argv[1:], "hVD:x:", ["help","version","debug=","accel="])
 
     except getopt.GetoptError: usage()
 
@@ -242,6 +504,7 @@ def main():
         if opt in ("-h", "--help"): usage()
         if opt in ("-V", "--version"): usage()
         if opt in ("-D", "--debug"): debug = int(arg)
+        if opt in ("-x", "--accel"): accel = float(arg)
     try:
 
         if debug:
@@ -249,9 +512,8 @@ def main():
 
         # Create the botmaster 
         ######################
-        botmaster = BotMaster()
+        botmaster = BotMaster(accel)
         botmaster.start()
-
 
     except KeyboardInterrupt:
         # CTRL-C pretty handling.
