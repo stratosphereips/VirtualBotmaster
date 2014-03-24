@@ -68,6 +68,7 @@ def usage():
     print "  -V, --version              Output version information and exit"
     print "  -D, --debug                Debug level. From 0 (no debug) to 5 (more debug)."
     print "  -x, --accel                Acceleration time. 2 for 2x, 10 for 10x"
+    print "  -c, --conf                 Configuration file. Defaults to ./VirtualBotmaster.conf'
     print
     sys.exit(1)
 
@@ -104,6 +105,12 @@ class Network(multiprocessing.Process):
 
 
 
+
+
+
+
+
+
 class CC(multiprocessing.Process):
     """
     A class thread to run a CC
@@ -124,6 +131,10 @@ class CC(multiprocessing.Process):
         self.bt = datetime.now()
         self.init_states()
         self.is_down = False
+        # self.histograms = ['label1':{'sth':[1,1,1,2,2,]}]
+        # self.histograms = ""
+        # Test
+        self.histograms = {'flow=From-Botnet-V1-TCP-CC12-HTTP-Not-Encrypted':{'tdh': [0, 0, 0, 0, 2, 0, 0, 0, 0, 0, 1, 0, 0, 0, 0, 0], 'tsh': [1, 0, 2, 0, 0, 0, 0, 0, 0, 0], 'fsh': [1, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 2], 'fdh': [1, 0, 0, 0, 0, 1, 4, 0, 0, 0, 0, 0, 0, 0], 'sth': [0, 0, 0, 0, 0, 0, 0, 1, 1, 0, 0, 0, 0, 0], 'tth': [1, 0, 0, 0, 1, 0, 0, 1, 0, 0, 0, 0, 1], 'ssh': [0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 4, 0], 'fth': [0, 0, 0, 0, 0, 1, 0, 0, 0, 0, 0], 'sdh': [0, 0, 0, 0, 0, 0, 1, 0, 0, 0, 0, 0, 0]}}
 
 
     def init_states(self):
@@ -361,11 +372,75 @@ class CC(multiprocessing.Process):
             sys.exit(1)
 
 
+    def read_mcmodels(self,mcfolder):
+        """
+        Get the folder name with the markov chain models and prepare the data to be used
+        The mc matrix and vector
+        The t1 and t2 values.
+        """
+        try:
+            global debug
+            global verbose
+
+            import pykov
+            import operator
+            import cPickle
+            import math
+
+            if verbose:
+                print 'Folder used for models: {}'.format(folder)
+
+            # Read all the models
+            mcmodels = {}
+            list_of_files = os.listdir(folder)
+            label_name = ""
+
+            for file in list_of_files:
+                try:
+                    file_name = folder+'/'+file
+                    print file_name
+
+                    #input = open(file_name, 'rb')
+                    #p = cPickle.load(input)
+                    #P = cPickle.load(input)
+                    #stored_state = cPickle.load(input)
+                    #input.close()
+                    #label_name = file.split('.mcmodel')[0]
+
+                    #mcmodels[label_name] = [p,P,stored_state]
+                except:
+                    print 'Error. The label {0} has no model stored.'.format(label_name)
+
+            if not mcmodels:
+                print 'Error. There is not models to read.'
+                exit(-1)
+
+
+        except Exception as inst:
+            if debug:
+                print '\tProblem with read_mcmodels in CC class'
+            print type(inst)     # the exception instance
+            print inst.args      # arguments stored in .args
+            print inst           # __str__ allows args to printed directly
+            sys.exit(1)
+
+
     def run(self):
         try:
 
             if debug:
                 print '\t\t\tCC: started'
+
+            #1 Read the conf file and extract what is meant for us.
+            #2 Read the MC models
+            self.read_mcmodels(self.mcfolder)
+            #3 Read the the histograms
+            self.read_histograms(self.mcfolder)
+            #2 
+            
+
+
+            # How should i select the type of CC behavior??? from a list? from command line? from a config file?
 
             while (True):
 
@@ -387,6 +462,7 @@ class CC(multiprocessing.Process):
                 elif self.CC_initialized:
                     # No orders, so search for the next state
                     nextstate = self.get_state()
+                    # For that letter and our current label, get the values for the netflows
                     if nextstate == 'Idle':
                         self.be_idle()
                     elif nextstate == 'DownCC':
@@ -566,7 +642,6 @@ class BotMaster(multiprocessing.Process):
         self.bt = datetime.now()
         self.init_states()
 
-
     def init_states(self):
         """
         Define the states and set the iterator
@@ -667,8 +742,9 @@ def main():
     try:
         global debug
         accel = 1
+        conf_file = './VirtualBotmaster.conf'
         
-        opts, args = getopt.getopt(sys.argv[1:], "hVD:x:", ["help","version","debug=","accel="])
+        opts, args = getopt.getopt(sys.argv[1:], "hVD:x:c:", ["help","version","debug=","accel=","conf="])
 
     except getopt.GetoptError: usage()
 
@@ -677,10 +753,15 @@ def main():
         if opt in ("-V", "--version"): usage()
         if opt in ("-D", "--debug"): debug = int(arg)
         if opt in ("-x", "--accel"): accel = float(arg)
+        if opt in ("-c", "--conf"): conf_file = str(arg)
     try:
 
         if debug:
             verbose = True
+
+        # Read the config file
+        ######################
+        #botmaster.set_conf_file(conf_file)
 
         # Create the botmaster 
         ######################
