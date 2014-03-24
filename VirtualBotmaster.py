@@ -68,7 +68,7 @@ def usage():
     print "  -V, --version              Output version information and exit"
     print "  -D, --debug                Debug level. From 0 (no debug) to 5 (more debug)."
     print "  -x, --accel                Acceleration time. 2 for 2x, 10 for 10x"
-    print "  -c, --conf                 Configuration file. Defaults to ./VirtualBotmaster.conf'
+    print "  -c, --conf                 Configuration file. Defaults to ./VirtualBotmaster.conf"
     print
     sys.exit(1)
 
@@ -78,9 +78,10 @@ class Network(multiprocessing.Process):
     A class thread to run the output in the network
     """
     global debug
-    def __init__(self, qnetwork):
+    def __init__(self, qnetwork, conf_file):
         multiprocessing.Process.__init__(self)
         self.qnetwork = qnetwork
+        self.conf_file = conf_file
 
     def run(self):
         try:
@@ -116,11 +117,13 @@ class CC(multiprocessing.Process):
     A class thread to run a CC
     """
     global debug
-    def __init__(self, accel, qbot_CC, qnetwork):
+    def __init__(self, accel, qbot_CC, qnetwork, conf_file):
         multiprocessing.Process.__init__(self)
         self.qbot_CC = qbot_CC
         self.qnetwork = qnetwork
         self.accel = float(accel)
+        self.conf_file = conf_file
+
         # 1 minutes
         self.periodicity = float( 1 * 60 ) # Should be In minutes, thats why we multiply by 60.
         # 10 seconds
@@ -130,11 +133,18 @@ class CC(multiprocessing.Process):
         # Botnet time. Starts now.
         self.bt = datetime.now()
         self.init_states()
-        self.is_down = False
-        # self.histograms = ['label1':{'sth':[1,1,1,2,2,]}]
-        # self.histograms = ""
-        # Test
-        self.histograms = {'flow=From-Botnet-V1-TCP-CC12-HTTP-Not-Encrypted':{'tdh': [0, 0, 0, 0, 2, 0, 0, 0, 0, 0, 1, 0, 0, 0, 0, 0], 'tsh': [1, 0, 2, 0, 0, 0, 0, 0, 0, 0], 'fsh': [1, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 2], 'fdh': [1, 0, 0, 0, 0, 1, 4, 0, 0, 0, 0, 0, 0, 0], 'sth': [0, 0, 0, 0, 0, 0, 0, 1, 1, 0, 0, 0, 0, 0], 'tth': [1, 0, 0, 0, 1, 0, 0, 1, 0, 0, 0, 0, 1], 'ssh': [0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 4, 0], 'fth': [0, 0, 0, 0, 0, 1, 0, 0, 0, 0, 0], 'sdh': [0, 0, 0, 0, 0, 0, 1, 0, 0, 0, 0, 0, 0]}}
+
+        # Hold the models
+        self.p = -1
+        self.P = -1
+        self.stored_state = ""
+        self.t1 = -1
+        self.t2 = -1
+        self.histograms = []
+        self.state_index = 0
+
+        # States for this run of the CC
+        self.states = ""
 
 
     def init_states(self):
@@ -149,23 +159,12 @@ class CC(multiprocessing.Process):
         """
         Returns the next state the CC should be on.
         """
-        # Basic probabilistic changes
-        # 96% being idle
-        # 2% being down
-        # 2% being maintenanceActivity
-        probability = random.randrange(0,100)
-
-        #if debug:
-        #    print 'Probability: {}'.format(probability)
-
-        if self.is_down:
-            return 'DownCC'
-        elif probability <= 98:
-            return 'Idle'
-        elif probability > 98 and probability <= 99:
-            return 'DownCC'
-        elif probability > 99 and probability <= 100:
-            return 'maintenanceActivity'
+        if self.states:
+            state = self.states[self.state_index]
+            self.state_index += 1
+        else: 
+            state = ""
+        return state
 
 
     def asleep(self,t):
@@ -179,241 +178,194 @@ class CC(multiprocessing.Process):
             #print 'Real time: {}, Botnet time: {}'.format(datetime.now(), self.bt)
 
 
-    def be_idle(self):
+    #def be_idle(self):
+        #"""
+        #Actions of being idle
+        #"""
+        #try:
+#
+            ## Select the values for each field of the flow according to the Markov Chain
+            ## StartTime Dur Proto SrcAddr Sport Dir DstAddr Dport State sTos dTos TotPkts TotBytes Label
+            #starttime = str(self.bt)
+            #dur = "20"
+            #proto = "tcp"
+            #srcaddr = "10.0.0.1"
+            #sport = "2102"
+            #dir = "->"
+            #dstaddr = "201.23.1.4"
+            #dport = "80"
+            #state = "FSPA_FSA"
+            #tos = "0"
+            #packets = "9"
+            #bytes = "530"
+            #label = ""
+#
+            #flow = starttime + self.flow_separator + dur + self.flow_separator + proto + self.flow_separator + srcaddr + self.flow_separator + sport + self.flow_separator + dir + self.flow_separator + dstaddr + self.flow_separator + dport + self.flow_separator + state + self.flow_separator + tos + self.flow_separator + packets + self.flow_separator + bytes + self.flow_separator + label
+#
+            #self.qnetwork.put(flow)
+#
+            ## We were idle so wait for the next iteration
+            #self.asleep(self.periodicity)
+#
+        #except Exception as inst:
+            #if debug:
+                #print '\tProblem with be_idle in CC class'
+            #print type(inst)     # the exception instance
+            #print inst.args      # arguments stored in .args
+            #print inst           # __str__ allows args to printed directly
+            #sys.exit(1)
+
+
+    def read_conf(self):
         """
-        Actions of being idle
+        Read the conf and load the values
         """
         try:
+            global debug
+            if debug:
+                print 'Reading the configuration file: {}'.format(self.conf_file)
+            self.model_folder = 'MCModels'
+            self.label = 'flow=From-Botnet-V1-TCP-CC-Custom-Encryption-73'
+            if debug:
+                print 'Label for CC: {}'.format(self.label)
 
-            # Select the values for each field of the flow according to the Markov Chain
-            # StartTime Dur Proto SrcAddr Sport Dir DstAddr Dport State sTos dTos TotPkts TotBytes Label
-            starttime = str(self.bt)
-            dur = "20"
-            proto = "tcp"
-            srcaddr = "10.0.0.1"
-            sport = "2102"
-            dir = "->"
-            dstaddr = "201.23.1.4"
-            dport = "80"
-            state = "FSPA_FSA"
-            tos = "0"
-            packets = "9"
-            bytes = "530"
-            label = ""
-
-            flow = starttime + self.flow_separator + dur + self.flow_separator + proto + self.flow_separator + srcaddr + self.flow_separator + sport + self.flow_separator + dir + self.flow_separator + dstaddr + self.flow_separator + dport + self.flow_separator + state + self.flow_separator + tos + self.flow_separator + packets + self.flow_separator + bytes + self.flow_separator + label
-
-            self.qnetwork.put(flow)
-
-            # We were idle so wait for the next iteration
-            self.asleep(self.periodicity)
 
         except Exception as inst:
             if debug:
-                print '\tProblem with be_idle in CC class'
+                print '\tProblem with read_conf in CC class'
             print type(inst)     # the exception instance
             print inst.args      # arguments stored in .args
             print inst           # __str__ allows args to printed directly
             sys.exit(1)
 
 
-    def be_starting(self):
+    def get_model_values_for_this_state(self,nextstate):
         """
-        Actions of starting
+        Get the letter of the state and according to the current label, computes the values of time, duration and size according to the histograms in the model.
         """
         try:
+            global debug
 
-            # Select the values for each field of the flow according to the Markov Chain
-            # StartTime Dur Proto SrcAddr Sport Dir DstAddr Dport State sTos dTos TotPkts TotBytes Label
-            starttime = str(self.bt)
-            dur = "20"
-            proto = "tcp"
-            srcaddr = "10.0.0.1"
-            sport = "2102"
-            dir = "->"
-            dstaddr = "201.23.1.4"
-            dport = "80"
-            state = "FSPA_FSA"
-            tos = "0"
-            packets = "9"
-            bytes = "200"
-            label = ""
-
-            flow = starttime + self.flow_separator + dur + self.flow_separator + proto + self.flow_separator + srcaddr + self.flow_separator + sport + self.flow_separator + dir + self.flow_separator + dstaddr + self.flow_separator + dport + self.flow_separator + state + self.flow_separator + tos + self.flow_separator + packets + self.flow_separator + bytes + self.flow_separator + label
-
-            self.qnetwork.put(flow)
-
-            # We were idle so wait for the next iteration
-            self.asleep(self.periodicity)
-
-            self.CC_initialized = True
 
         except Exception as inst:
             if debug:
-                print '\tProblem with be_starting in CC class'
+                print '\tProblem with get_model_values_for_this_state in CC class'
             print type(inst)     # the exception instance
             print inst.args      # arguments stored in .args
             print inst           # __str__ allows args to printed directly
             sys.exit(1)
 
 
-    def be_commandActivity(self):
+    def read_histograms(self):
         """
-        Actions of command activity
+        Get 
         """
         try:
+            global debug
 
-            # Select the values for each field of the flow according to the Markov Chain
-            # StartTime Dur Proto SrcAddr Sport Dir DstAddr Dport State sTos dTos TotPkts TotBytes Label
-            starttime = str(self.bt)
-            dur = "20"
-            proto = "tcp"
-            srcaddr = "10.0.0.1"
-            sport = "2102"
-            dir = "->"
-            dstaddr = "201.23.1.4"
-            dport = "80"
-            state = "FSPA_FSA"
-            tos = "0"
-            packets = "14"
-            bytes = "1200"
-            label = ""
+            import pykov
+            import operator
+            import cPickle
 
-            flow = starttime + self.flow_separator + dur + self.flow_separator + proto + self.flow_separator + srcaddr + self.flow_separator + sport + self.flow_separator + dir + self.flow_separator + dstaddr + self.flow_separator + dport + self.flow_separator + state + self.flow_separator + tos + self.flow_separator + packets + self.flow_separator + bytes + self.flow_separator + label
+            if debug:
+                print 'Reading the histograms...'
+            try:
+                file_name = self.model_folder+'/labels.histograms'
+                input = open(file_name, 'rb')
+                histograms = cPickle.load(input)
+                input.close()
+                self.histograms = histograms[self.label]
+                if debug > 2:
+                    print '\tHistograms: {}'.format(self.histograms)
+            except:
+                print 'Error. The label {0} has no histogram stored.'.format(self.label)
+                exit(-1)
 
-            self.qnetwork.put(flow)
+            if not self.histograms:
+                print 'Error. There is not histograms to read.'
+                exit(-1)
 
-            # We were idle so wait for the next iteration
-            self.asleep(self.periodicity)
 
         except Exception as inst:
             if debug:
-                print '\tProblem with be_commandActivity in CC class'
+                print '\tProblem with read_histograms in CC class'
             print type(inst)     # the exception instance
             print inst.args      # arguments stored in .args
             print inst           # __str__ allows args to printed directly
             sys.exit(1)
 
 
-    def be_maintenanceActivity(self):
+    def read_mcmodels(self):
         """
-        Actions of maintenance activity
-        """
-        try:
-
-            # Select the values for each field of the flow according to the Markov Chain
-            # StartTime Dur Proto SrcAddr Sport Dir DstAddr Dport State sTos dTos TotPkts TotBytes Label
-            starttime = str(self.bt)
-            dur = "30"
-            proto = "tcp"
-            srcaddr = "10.0.0.1"
-            sport = "2102"
-            dir = "->"
-            dstaddr = "201.23.1.4"
-            dport = "80"
-            state = "FSPA_FSA"
-            tos = "0"
-            packets = "1"
-            bytes = "10"
-            label = ""
-
-            flow = starttime + self.flow_separator + dur + self.flow_separator + proto + self.flow_separator + srcaddr + self.flow_separator + sport + self.flow_separator + dir + self.flow_separator + dstaddr + self.flow_separator + dport + self.flow_separator + state + self.flow_separator + tos + self.flow_separator + packets + self.flow_separator + bytes + self.flow_separator + label
-
-            self.qnetwork.put(flow)
-
-            # We were idle so wait for the next iteration
-            self.asleep(self.periodicity)
-
-        except Exception as inst:
-            if debug:
-                print '\tProblem with be_maintenanceActivity in CC class'
-            print type(inst)     # the exception instance
-            print inst.args      # arguments stored in .args
-            print inst           # __str__ allows args to printed directly
-            sys.exit(1)
-
-
-    def be_down(self):
-        """
-        Actions of down activity
-        """
-        try:
-
-            # Select the values for each field of the flow according to the Markov Chain
-            # StartTime Dur Proto SrcAddr Sport Dir DstAddr Dport State sTos dTos TotPkts TotBytes Label
-            starttime = str(self.bt)
-            dur = "0"
-            proto = "tcp"
-            srcaddr = "10.0.0.1"
-            sport = "2102"
-            dir = "->"
-            dstaddr = "201.23.1.4"
-            dport = "80"
-            state = "SPA_*"
-            tos = "0"
-            packets = "1"
-            bytes = "20"
-            label = ""
-
-            flow = starttime + self.flow_separator + dur + self.flow_separator + proto + self.flow_separator + srcaddr + self.flow_separator + sport + self.flow_separator + dir + self.flow_separator + dstaddr + self.flow_separator + dport + self.flow_separator + state + self.flow_separator + tos + self.flow_separator + packets + self.flow_separator + bytes + self.flow_separator + label
-
-            self.qnetwork.put(flow)
-
-            # We were idle so wait for the next iteration
-            self.asleep(self.down_periodicity)
-            self.is_down = True
-
-        except Exception as inst:
-            if debug:
-                print '\tProblem with be_down in CC class'
-            print type(inst)     # the exception instance
-            print inst.args      # arguments stored in .args
-            print inst           # __str__ allows args to printed directly
-            sys.exit(1)
-
-
-    def read_mcmodels(self,mcfolder):
-        """
-        Get the folder name with the markov chain models and prepare the data to be used
+        From the folder name with the markov chain models, prepare the data to be used
         The mc matrix and vector
         The t1 and t2 values.
         """
         try:
             global debug
-            global verbose
 
             import pykov
             import operator
             import cPickle
-            import math
 
-            if verbose:
-                print 'Folder used for models: {}'.format(folder)
+            if debug:
+                print 'Reading the models from folder: {}'.format(self.model_folder)
 
             # Read all the models
-            mcmodels = {}
-            list_of_files = os.listdir(folder)
+            list_of_files = os.listdir(self.model_folder)
             label_name = ""
 
             for file in list_of_files:
                 try:
-                    file_name = folder+'/'+file
-                    print file_name
+                    file_name = self.model_folder+'/'+file
+                    
+                    if self.label in file_name:
+                        input = open(file_name, 'rb')
+                        try:
+                            p = cPickle.load(input)
+                        except:
+                            if debug:
+                                print 'Error. The label {0} has no p stored.'.format(label_name)
+                        try:
+                            P = cPickle.load(input)
+                        except:
+                            if debug:
+                                print 'Error. The label {0} has no P stored.'.format(label_name)
+                        try:
+                            stored_state = cPickle.load(input)
+                        except:
+                            if debug:
+                                print 'Error. The label {0} has no state stored.'.format(label_name)
+                        try:
+                            [(t1,t2)] = cPickle.load(input)
+                        except:
+                            if debug:
+                                print 'Error. The label {0} has no t1 or t2 stored.'.format(label_name)
+                        if debug > 2:
+                            print '\tFile name : {}'.format(file_name)
+                            print '\tp={}'.format(p)
+                            print '\tP={} ({})'.format(P, type(P))
+                            print '\tstate={}'.format(stored_state)
+                            print '\tt1={}, t2={}'.format(t1,t2)
+                        input.close()
+                        label_name = file.split('.mcmodel')[0]
 
-                    #input = open(file_name, 'rb')
-                    #p = cPickle.load(input)
-                    #P = cPickle.load(input)
-                    #stored_state = cPickle.load(input)
-                    #input.close()
-                    #label_name = file.split('.mcmodel')[0]
-
-                    #mcmodels[label_name] = [p,P,stored_state]
+                        self.p = p
+                        self.P = P
+                        self.stored_state = stored_state
+                        self.t1 = t1
+                        self.t2 = t2
                 except:
                     print 'Error. The label {0} has no model stored.'.format(label_name)
+                    exit(-1)
 
-            if not mcmodels:
-                print 'Error. There is not models to read.'
-                exit(-1)
+            # Generate the states for this CC
+            print 'a'
+            print self.P.walk_probability(['a','a','a'])
+            print P.walk(10)
+            self.states = P.walk(10)
+            print 'b'
+            print self.states
 
 
         except Exception as inst:
@@ -432,10 +384,11 @@ class CC(multiprocessing.Process):
                 print '\t\t\tCC: started'
 
             #1 Read the conf file and extract what is meant for us.
+            self.read_conf()
             #2 Read the MC models
-            self.read_mcmodels(self.mcfolder)
+            self.read_mcmodels()
             #3 Read the the histograms
-            self.read_histograms(self.mcfolder)
+            self.read_histograms()
             #2 
             
 
@@ -449,7 +402,7 @@ class CC(multiprocessing.Process):
                     order = self.qbot_CC.get(0.1)
 
                     if order == 'Start':
-                        self.be_starting()
+                        self.CC_initialized = True
 
                     elif order == 'CommandActivity':
                         self.be_commandActivity()
@@ -462,13 +415,11 @@ class CC(multiprocessing.Process):
                 elif self.CC_initialized:
                     # No orders, so search for the next state
                     nextstate = self.get_state()
+                    print nextstate
+                    self.get_model_values_for_this_state(nextstate)
+                    self.asleep(self.periodicity)
                     # For that letter and our current label, get the values for the netflows
-                    if nextstate == 'Idle':
-                        self.be_idle()
-                    elif nextstate == 'DownCC':
-                        self.be_down()
-                    elif nextstate == 'maintenanceActivity':
-                        self.be_maintenanceActivity()
+                    # Send the netflow using those values.
 
 
         except KeyboardInterrupt:
@@ -489,11 +440,12 @@ class Bot(multiprocessing.Process):
     A class thread to run the bot
     """
     global debug
-    def __init__(self, accel, qbotnet_bot, qnetwork):
+    def __init__(self, accel, qbotnet_bot, qnetwork, conf_file):
         multiprocessing.Process.__init__(self)
         self.qbotnet_bot = qbotnet_bot
         self.qnetwork = qnetwork
         self.accel = float(accel)
+        self.conf_file = conf_file
         self.bt = datetime.now()
 
     def asleep(self,t):
@@ -523,7 +475,7 @@ class Bot(multiprocessing.Process):
                         self.qbot_CC = JoinableQueue()
                         
                         # Create the thread
-                        self.cc1 = CC(self.accel, self.qbot_CC, self.qnetwork)
+                        self.cc1 = CC(self.accel, self.qbot_CC, self.qnetwork, self.conf_file)
                         self.cc1.start()
     
                         # Test the network
@@ -564,11 +516,12 @@ class Botnet(multiprocessing.Process):
     A class thread to run the botnet
     """
     global debug
-    def __init__(self, accel, qbotmaster_botnet, qnetwork):
+    def __init__(self, accel, qbotmaster_botnet, qnetwork, conf_file):
         multiprocessing.Process.__init__(self)
         self.qbotmaster_botnet = qbotmaster_botnet
         self.qnetwork = qnetwork
         self.accel = float(accel)
+        self.conf_file = conf_file
         self.bt = datetime.now()
 
     def asleep(self,t):
@@ -600,7 +553,7 @@ class Botnet(multiprocessing.Process):
                         self.qbotnet_bot = Queue()
                         
                         # Create the thread
-                        self.bot = Bot(self.accel, self.qbotnet_bot, self.qnetwork)
+                        self.bot = Bot(self.accel, self.qbotnet_bot, self.qnetwork, self.conf_file)
                         self.bot.start()
             
                         self.qbotnet_bot.put(order)
@@ -636,9 +589,10 @@ class BotMaster(multiprocessing.Process):
     A class thread to run the botmaster code.
     """
     global debug
-    def __init__(self, accel):
+    def __init__(self, accel, conf_file):
         multiprocessing.Process.__init__(self)
         self.accel = float(accel)
+        self.conf_file = conf_file
         self.bt = datetime.now()
         self.init_states()
 
@@ -689,7 +643,7 @@ class BotMaster(multiprocessing.Process):
             self.qnetwork = Queue()
             
             # Create the thread
-            self.network = Network(self.qnetwork)
+            self.network = Network(self.qnetwork, self.conf_file)
             self.network.start()
 
             # Create the botnet
@@ -698,7 +652,7 @@ class BotMaster(multiprocessing.Process):
             self.qbotmaster_botnet = Queue()
             
             # Create the thread
-            self.botnet = Botnet(self.accel, self.qbotmaster_botnet, self.qnetwork)
+            self.botnet = Botnet(self.accel, self.qbotmaster_botnet, self.qnetwork, self.conf_file)
             self.botnet.start()
 
 
@@ -765,7 +719,7 @@ def main():
 
         # Create the botmaster 
         ######################
-        botmaster = BotMaster(accel)
+        botmaster = BotMaster(accel, conf_file)
         botmaster.start()
 
     except KeyboardInterrupt:
