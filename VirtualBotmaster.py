@@ -35,7 +35,11 @@ from datetime import timedelta
 import multiprocessing
 from multiprocessing import Queue
 from multiprocessing import JoinableQueue
+from collections import deque
 import random
+import pykov
+import operator
+import cPickle
 
 ####################
 # Global Variables
@@ -124,10 +128,6 @@ class CC(multiprocessing.Process):
         self.accel = float(accel)
         self.conf_file = conf_file
 
-        # 1 minutes
-        self.periodicity = float( 1 * 60 ) # Should be In minutes, thats why we multiply by 60.
-        # 10 seconds
-        self.down_periodicity = float( 10 ) # Should be In minutes, thats why we multiply by 60.
         self.flow_separator = ' '
         self.CC_initialized = False
         # Botnet time. Starts now.
@@ -140,12 +140,23 @@ class CC(multiprocessing.Process):
         self.stored_state = ""
         self.t1 = -1
         self.t2 = -1
-        self.histograms = []
-        self.state_index = 0
 
         # States for this run of the CC
         self.states = ""
+        self.iter_states = ""
 
+        self.histograms = []
+        self.stb = []
+        self.ttb = []
+        self.ftb = []
+        self.fdb = []
+        self.sdb = []
+        self.tdb = []
+        self.fsb = []
+        self.ssb = []
+        self.tsb = []
+
+        self.next_time_to_wait = deque([])
 
     def init_states(self):
         """
@@ -155,16 +166,108 @@ class CC(multiprocessing.Process):
         self.iter_states = iter(states)
 
 
-    def get_state(self):
+    def go_next_state(self):
         """
         Returns the next state the CC should be on.
         """
-        if self.states:
-            state = self.states[self.state_index]
-            self.state_index += 1
-        else: 
-            state = ""
-        return state
+        try:
+            self.current_state = next(self.iter_states)
+        except StopIteration:
+            raise
+
+    def normalize_hists(self):
+        """
+        Normalize all the hists
+        """
+        try:
+            global debug
+            if debug:
+                print 'Normalizing the hists.'
+
+            for hist in self.histograms:
+                
+                # Get the total amount
+                total = 0
+                for bin in self.histograms[hist]:
+                    total += bin
+                # Normalize
+                i = 0
+                while i < len(self.histograms[hist]):
+                    self.histograms[hist][i] = self.histograms[hist][i] / float(total)
+                    i += 1
+                #print self.histograms[hist]
+
+        except Exception as inst:
+            if debug:
+                print '\tProblem with normalize_hists in CC class'
+            print type(inst)     # the exception instance
+            print inst.args      # arguments stored in .args
+            print inst           # __str__ allows args to printed directly
+            sys.exit(1)
+
+
+    def get_a_value_from_hist(self,hist,bins):
+        """
+        Get a hist and return a value
+        """
+        try:
+            global debug
+
+            #if debug:
+            #    print 'Getting a value from hist'
+
+            min = bins[0]
+            max = bins[-1]
+
+            #1 Generate a random value between the min and max
+            value = False
+            selected_bin = False
+
+            # Repeat until we get a value
+            while not selected_bin:
+                #value = random.randrange(min, max)
+                value = random.uniform(min, max)
+
+                # On which bin is the value?
+                # Start from 0 because some values can be lower than the smallest bin (like time)
+                b = 0
+                while b < len(bins):
+                    if value < bins[b]:
+                        selected_bin = b
+                        break
+                    b += 1
+                if b == len(bins):
+                    # Means that we didn't found a bin for this value. Make it equal to the last bin... means 'more' than the last bin.
+                    selected_bin = b
+                #if debug:
+                    #print 'Value generated: {}. Is in bin #{}, Bins Value:{}'.format(value, selected_bin, bins[selected_bin])
+
+                #2 Generate a random probability between 0 and 1 for that value. If the prob is higher than the hist number for that value, then pick the value
+                #prob = random.randrange(0, 100) / 100.0
+                prob = random.random()
+                #print selected_bin
+                #print len(hist)
+                #print hist
+                #print len(bins)
+                #print bins
+                hist_prob = hist[selected_bin - 1]
+                #if debug:
+                    #print '\tGen Prob: {}, hist prob: {}'.format(prob, hist_prob)
+                if hist_prob > prob:
+                    #if debug:
+                    #    print '\tValue {} selected with prob {}'.format(value, prob)
+                    return value
+                else:
+                    selected_bin = False
+
+
+        except Exception as inst:
+            if debug:
+                print '\tProblem with get_a_value_from_hist in CC class'
+            print type(inst)     # the exception instance
+            print inst.args      # arguments stored in .args
+            print inst           # __str__ allows args to printed directly
+            sys.exit(1)
 
 
     def asleep(self,t):
@@ -178,42 +281,56 @@ class CC(multiprocessing.Process):
             #print 'Real time: {}, Botnet time: {}'.format(datetime.now(), self.bt)
 
 
-    #def be_idle(self):
-        #"""
-        #Actions of being idle
-        #"""
-        #try:
+    def build_netflow(self, time, duration, size):
+        """
+        Build the netflow and send it to the Network
+        """
+        try:
 #
-            ## Select the values for each field of the flow according to the Markov Chain
-            ## StartTime Dur Proto SrcAddr Sport Dir DstAddr Dport State sTos dTos TotPkts TotBytes Label
-            #starttime = str(self.bt)
-            #dur = "20"
-            #proto = "tcp"
-            #srcaddr = "10.0.0.1"
-            #sport = "2102"
-            #dir = "->"
-            #dstaddr = "201.23.1.4"
-            #dport = "80"
-            #state = "FSPA_FSA"
-            #tos = "0"
-            #packets = "9"
-            #bytes = "530"
-            #label = ""
-#
-            #flow = starttime + self.flow_separator + dur + self.flow_separator + proto + self.flow_separator + srcaddr + self.flow_separator + sport + self.flow_separator + dir + self.flow_separator + dstaddr + self.flow_separator + dport + self.flow_separator + state + self.flow_separator + tos + self.flow_separator + packets + self.flow_separator + bytes + self.flow_separator + label
-#
-            #self.qnetwork.put(flow)
-#
-            ## We were idle so wait for the next iteration
-            #self.asleep(self.periodicity)
-#
-        #except Exception as inst:
-            #if debug:
-                #print '\tProblem with be_idle in CC class'
-            #print type(inst)     # the exception instance
-            #print inst.args      # arguments stored in .args
-            #print inst           # __str__ allows args to printed directly
-            #sys.exit(1)
+            # Select the values for each field of the flow according to the Markov Chain
+            # StartTime Dur Proto SrcAddr Sport Dir DstAddr Dport State sTos dTos TotPkts TotBytes Label
+            starttime = str(self.bt)
+            dur = str(duration)
+            proto = self.proto
+            srcaddr = self.srcip
+            sport = self.srcport
+            dir = "->"
+            dstaddr = self.dstaddr
+            dport = self.dstport
+            state = self.protostate
+            tos = "0"
+            packets = "9"
+            bytes = str(size)
+            label = self.label
+
+            flow = starttime + self.flow_separator + dur + self.flow_separator + proto + self.flow_separator + srcaddr + self.flow_separator + sport + self.flow_separator + dir + self.flow_separator + dstaddr + self.flow_separator + dport + self.flow_separator + state + self.flow_separator + tos + self.flow_separator + packets + self.flow_separator + bytes + self.flow_separator + label
+
+            self.qnetwork.put(flow)
+
+            # Sleep time is the implementation of how much we wait, that is, of periodicity and is very important!
+            # t3 = time + t2
+            try: 
+                # Next sleeptime
+                self.next_time_to_wait.append( time + self.next_time_to_wait[0] )
+
+                # This is the t to wait now
+                sleep_time = self.next_time_to_wait.popleft()
+                #print 'sleep time: {}'.format(sleep_time)
+                #print 'Next sleep time added: {}'.format(self.next_time_to_wait[-1])
+            except IndexError:
+                # There are no more times stored
+                print 'Error! No more times stored to be used!'
+                exit(-1)
+            
+            return sleep_time
+
+        except Exception as inst:
+            if debug:
+                print '\tProblem with build_netflow in CC class'
+            print type(inst)     # the exception instance
+            print inst.args      # arguments stored in .args
+            print inst           # __str__ allows args to printed directly
+            sys.exit(1)
 
 
     def read_conf(self):
@@ -225,7 +342,16 @@ class CC(multiprocessing.Process):
             if debug:
                 print 'Reading the configuration file: {}'.format(self.conf_file)
             self.model_folder = 'MCModels'
-            self.label = 'flow=From-Botnet-V1-TCP-CC-Custom-Encryption-73'
+            self.label = 'flow=From-Botnet-V1-TCP-CC-HTTP-69'
+            self.proto = "TCP"
+            self.srcip = "10.0.0.2"
+            self.srcport = "23442"
+            self.dstaddr = "212.1.1.2"
+            self.dstport = "80"
+            self.protostate = "FSPA_FSA"
+            self.ftos = "0"
+            packets = "9"
+
             if debug:
                 print 'Label for CC: {}'.format(self.label)
 
@@ -239,13 +365,111 @@ class CC(multiprocessing.Process):
             sys.exit(1)
 
 
-    def get_model_values_for_this_state(self,nextstate):
+    def get_model_values_for_this_state(self):
         """
         Get the letter of the state and according to the current label, computes the values of time, duration and size according to the histograms in the model.
         """
         try:
             global debug
+            # Time
+            if self.current_state in '123456789':
+                # First time histogram         
+                # TD = 0 lets us use the t2 and t1 here.
+                time = 0
+            elif self.current_state in 'abcdefghi':        
+                # Second time histogram         
+                try:
+                    sth = self.histograms['sth']
+                    time = self.get_a_value_from_hist(sth,self.stb)
+                    if debug:
+                        print '\tFor 2th time, value generated: {}'.format(time)
+                except:
+                    print 'Warning! A letter was generated from the MC that does not have a histogram stored... weird.'
 
+            elif self.current_state in 'ABCDEFGHI': 
+                # Third time histogram         
+                try:
+                    tth = self.histograms['tth']
+                    time = self.get_a_value_from_hist(tth,self.ttb)
+                    if debug:
+                        print '\tFor 3th time, value generated: {}'.format(time)
+                except:
+                    print 'Warning! A letter was generated from the MC that does not have a histogram stored... weird.'
+
+            elif self.current_state in 'rstuvwxyz':        
+                # Fourth time histogram   
+                try:
+                    fth = self.histograms['fth']
+                    time = self.get_a_value_from_hist(fth,self.ftb)
+                    if debug:
+                        print '\tFor 4th time, value generated: {}'.format(time)
+                except:
+                    print 'Warning! A letter was generated from the MC that does not have a histogram stored... weird.'
+
+            # Duration
+            if self.current_state in '147adgADGrux': 
+                # First duration histogram
+                try:
+                    fdh = self.histograms['fdh']
+                    duration = self.get_a_value_from_hist(fdh,self.fdb)
+                    if debug:
+                        print '\tFor 1th duration, value generated: {}'.format(duration)
+                except:
+                    print 'Warning! A letter was generated from the MC that does not have a histogram stored... weird.'
+
+            elif self.current_state in '258behBEHsvy':
+                # Second duration histogram
+                try:
+                    sdh = self.histograms['sdh']
+                    duration = self.get_a_value_from_hist(sdh,self.sdb)
+                    if debug:
+                        print '\tFor 2th duration, value generated: {}'.format(duration)
+                except:
+                    print 'Warning! A letter was generated from the MC that does not have a histogram stored... weird.'
+
+            elif self.current_state in '369cfiCFItwz':
+                # Third duration histogram
+                try:
+                    tdh = self.histograms['tdh']
+                    duration = self.get_a_value_from_hist(tdh,self.tdb)
+                    if debug:
+                        print '\tFor 3th duration, value generated: {}'.format(duration)
+                except:
+                    print 'Warning! A letter was generated from the MC that does not have a histogram stored... weird.'
+
+            # Size
+            if self.current_state in '123abcABCrst':
+                # First size histogram
+                try:
+                    fsh = self.histograms['fsh']
+                    size = self.get_a_value_from_hist(fsh,self.fsb)
+                    if debug:
+                        print '\tFor 3th size, value generated: {}'.format(size)
+                except:
+                    print 'Warning! A letter was generated from the MC that does not have a histogram stored... weird.'
+
+            elif self.current_state in '456defDEFuvw':
+                # Second size histogram
+                try:
+                    ssh = self.histograms['ssh']
+                    size = self.get_a_value_from_hist(ssh,self.ssb)
+                    if debug:
+                        print '\tFor 3th size, value generated: {}'.format(size)
+                except:
+                    print 'Warning! A letter was generated from the MC that does not have a histogram stored... weird.'
+
+            elif self.current_state in '789ghiGHIxyz':
+                # Third size histogram
+                try:
+                    tsh = self.histograms['tsh']
+                    size = self.get_a_value_from_hist(tsh,self.tsb)
+                    if debug:
+                        print '\tFor 3th size, value generated: {}'.format(size)
+                except:
+                    print 'Warning! A letter was generated from the MC that does not have a histogram stored... weird.'
+   
+            # Return
+            return (time,duration,size)
 
         except Exception as inst:
             if debug:
@@ -263,9 +487,6 @@ class CC(multiprocessing.Process):
         try:
             global debug
 
-            import pykov
-            import operator
-            import cPickle
 
             if debug:
                 print 'Reading the histograms...'
@@ -273,10 +494,22 @@ class CC(multiprocessing.Process):
                 file_name = self.model_folder+'/labels.histograms'
                 input = open(file_name, 'rb')
                 histograms = cPickle.load(input)
+                self.stb = cPickle.load(input)
+                self.ttb = cPickle.load(input)
+                self.ftb = cPickle.load(input)
+                self.fdb = cPickle.load(input)
+                self.sdb = cPickle.load(input)
+                self.tdb = cPickle.load(input)
+                self.fsb = cPickle.load(input)
+                self.ssb = cPickle.load(input)
+                self.tsb = cPickle.load(input)
                 input.close()
                 self.histograms = histograms[self.label]
                 if debug > 2:
                     print '\tHistograms: {}'.format(self.histograms)
+
+                self.normalize_hists()
+
             except:
                 print 'Error. The label {0} has no histogram stored.'.format(self.label)
                 exit(-1)
@@ -303,10 +536,6 @@ class CC(multiprocessing.Process):
         """
         try:
             global debug
-
-            import pykov
-            import operator
-            import cPickle
 
             if debug:
                 print 'Reading the models from folder: {}'.format(self.model_folder)
@@ -355,17 +584,21 @@ class CC(multiprocessing.Process):
                         self.stored_state = stored_state
                         self.t1 = t1
                         self.t2 = t2
+                        self.next_time_to_wait.append(t1)
+                        self.next_time_to_wait.append(t2)
                 except:
                     print 'Error. The label {0} has no model stored.'.format(label_name)
                     exit(-1)
 
             # Generate the states for this CC
-            print 'a'
-            print self.P.walk_probability(['a','a','a'])
-            print P.walk(10)
-            self.states = P.walk(10)
-            print 'b'
-            print self.states
+            try:
+                self.states = P.walk(50)
+                self.iter_states = iter(self.states)
+            except UnboundLocalError:
+                print 'Error in the MC stored for this lable. Change it.'
+                exit(-1)
+            if debug > 2:
+                print 'States generated: {}'.format(self.states)
 
 
         except Exception as inst:
@@ -383,20 +616,16 @@ class CC(multiprocessing.Process):
             if debug:
                 print '\t\t\tCC: started'
 
-            #1 Read the conf file and extract what is meant for us.
+            # Read the conf file and extract what is meant for us.
             self.read_conf()
-            #2 Read the MC models
+            # Read the MC models
             self.read_mcmodels()
-            #3 Read the the histograms
+            # Read the the histograms
             self.read_histograms()
-            #2 
-            
-
 
             # How should i select the type of CC behavior??? from a list? from command line? from a config file?
 
             while (True):
-
                 # Check if we have msg from botnet
                 if not self.qbot_CC.empty():
                     order = self.qbot_CC.get(0.1)
@@ -413,13 +642,24 @@ class CC(multiprocessing.Process):
                         break
 
                 elif self.CC_initialized:
-                    # No orders, so search for the next state
-                    nextstate = self.get_state()
-                    print nextstate
-                    self.get_model_values_for_this_state(nextstate)
-                    self.asleep(self.periodicity)
+                    # No orders, so search for the next state and generate the NetFlows
+                    try:
+                        self.go_next_state()
+                    except StopIteration:
+                        # No more letters, so we are dead.
+                        break
+
                     # For that letter and our current label, get the values for the netflows
+                    if debug:
+                        print 'Current state: {}'.format(self.current_state)
+                    (time, duration, size) = self.get_model_values_for_this_state()
                     # Send the netflow using those values.
+                    sleep_time = self.build_netflow(time, duration, size)
+                    if debug:
+                        print 'Sleeping: {}'.format(sleep_time)
+                    
+                    # Sleep
+                    self.asleep(sleep_time)
 
 
         except KeyboardInterrupt:
@@ -625,8 +865,6 @@ class BotMaster(multiprocessing.Process):
         """
         Function that knows how much time to wait between states
         """
-        import random
-
         # Get a time with gauss mu=10 and std=1
         t = random.gauss(10,1)
         self.asleep(t * 60) # Should be minutes
