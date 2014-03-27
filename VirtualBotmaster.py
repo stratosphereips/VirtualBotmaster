@@ -103,6 +103,7 @@ class Network(multiprocessing.Process):
                     continue
                 if flow == 'Stop':
                     raise KeyboardInterrupt
+                    self.qnetwork.task_done()
 
                 print flow
 
@@ -777,6 +778,7 @@ class CC(multiprocessing.Process):
                         if debug:
                             print '\t\t\tCC: stopping.'
                         raise KeyboardInterrupt
+                        self.qbot_CC.task_done()
                         break
 
                 elif self.CC_initialized:
@@ -872,9 +874,11 @@ class Bot(multiprocessing.Process):
                     elif order == 'Stop':
                         self.qbot_CC.put(order)
                         self.qbot_CC.join()
+                        self.cc1.terminate()
+                        raise KeyboardInterrupt
+                        self.qbotnet_bot.task_done()
                         if debug:
                             print '\t\tBot: stopping.'
-                        raise KeyboardInterrupt
                         break
                 else:
                     #if debug:
@@ -953,7 +957,10 @@ class Botnet(multiprocessing.Process):
 
                     elif order == 'Stop':
                         self.qbotnet_bot.put(order)
+                        #self.qbotnet_bot.join()
+                        self.bot.terminate()
                         self.qbotmaster_botnet.task_done()
+                        raise KeyboardInterrupt
                         if debug:
                             print '\tBotnet: stopping.'
                         break
@@ -1068,8 +1075,13 @@ class BotMaster(multiprocessing.Process):
 
                 if newstate == 'Stop':
                     self.qbotmaster_botnet.put(newstate)
-                    self.botnet.terminate()
-                    self.network.terminate()
+                    #self.qbotmaster_botnet.join()
+                    #self.botnet.terminate()
+
+                    self.qnetwork.put(newstate)
+                    #self.qnetwork.join()
+                    #self.network.terminate()
+                    raise KeyboardInterrupt
                     if debug:
                         print 'Botmaster: stopping. ({})'.format(self.bt)
                     break
@@ -1077,8 +1089,6 @@ class BotMaster(multiprocessing.Process):
                 self.wait_next_state()
 
         except KeyboardInterrupt:
-            self.botnet.terminate()
-            self.network.terminate()
             if debug:
                 print 'Botmaster stopped.'
         except Exception as inst:
