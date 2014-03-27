@@ -101,6 +101,8 @@ class Network(multiprocessing.Process):
                     self.qnetwork.task_done()
                     print 'StartTime,Dur,Proto,SrcAddr,Sport,Dir,DstAddr,Dport,State,sTos,TotPkts,TotBytes,Label'
                     continue
+                if flow == 'Stop':
+                    raise KeyboardInterrupt
 
                 print flow
 
@@ -213,7 +215,7 @@ class CC(multiprocessing.Process):
             elif size <= 120:
                 packets = 2
             elif size > 120:
-                packets = 3
+                packets = int(size * self.rel_median)
 
             return packets
 
@@ -415,12 +417,19 @@ class CC(multiprocessing.Process):
                 print 'Reading the configuration file: {}'.format(self.conf_file)
             self.model_folder = 'MCModels'
             #self.label = 'flow=From-Botnet-V1-TCP-CC-HTTP-69'
-            self.label = 'flow=From-Botnet-V1-TCP-CC-HTTP-Custom-Encryption-62'
+            #self.label = 'flow=From-Botnet-V1-TCP-CC-HTTP-Custom-Encryption-62'
+            #self.label = 'flow=From-Botnet-V1-TCP-CC-Custom-Encryption-100'
+            #self.label = 'flow=From-Botnet-V1-TCP-CC-Custom-Encryption-108'
+            #self.label = 'flow=From-Botnet-V1-UDP-DNS'
+            self.label = 'flow=From-Botnet-V1-TCP-Custom-Encryption-20'
 
             if 'TCP' in self.label:
                 self.proto = "TCP"
             elif 'UDP' in self.label:
                 self.proto = "UDP"
+            else:
+                print 'Warning! No proto in the label.!'
+                exit(-1)
 
             self.srcip = "10.0.0.2"
             self.srcport = "23442"
@@ -428,8 +437,7 @@ class CC(multiprocessing.Process):
             self.dstport = "80"
             self.protostate = "FSPA_FSA"
             self.ftos = "0"
-            packets = "9"
-            self.length_of_state = 1000
+            self.length_of_state = 'Default' # Or user default
             self.flow_separator = ','
 
             if debug:
@@ -655,16 +663,26 @@ class CC(multiprocessing.Process):
                             if debug:
                                 print 'Error. The label {0} has no state stored.'.format(label_name)
                         try:
-                            [(t1,t2)] = cPickle.load(input)
+                            t1t2_vector = cPickle.load(input)
+                            # The vector can have all the t1 t2 for all the 3tuples in this label. Pick the firsts ones.
+                            (t1,t2) = t1t2_vector[0]
+                            pass
                         except:
                             if debug:
                                 print 'Error. The label {0} has no t1 or t2 stored.'.format(label_name)
+                        try:
+                            rel_median = cPickle.load(input)
+                            pass
+                        except:
+                            if debug:
+                                print 'Error. The label {0} has no paq/bytes ratio stored.'.format(label_name)
                         if debug > 6:
                             print '\tFile name : {}'.format(file_name)
                             print '\tp={}'.format(p)
                             print '\tP={} ({})'.format(P, type(P))
                             print '\tstate={}(...)'.format(stored_state[0:200])
                             print '\tt1={}, t2={}'.format(t1,t2)
+                            print '\tPaq/bytes rel={}'.format(rel_median)
                         input.close()
                         label_name = file.split('.mcmodel')[0]
 
@@ -673,6 +691,7 @@ class CC(multiprocessing.Process):
                         self.stored_state = stored_state
                         self.t1 = t1
                         self.t2 = t2
+                        self.rel_median = rel_median
 
                         self.next_time_to_wait.append(t1)
 
@@ -700,7 +719,12 @@ class CC(multiprocessing.Process):
 
             # Generate the states for this CC
             try:
-                self.states = P.walk(self.length_of_state)
+                # Warning, without the initial_state, some chains can not generate the walk... like a bug in the libs?
+                initial_state = p.choose()
+                if self.length_of_state != 'Default':
+                    self.states = P.walk(self.length_of_state, start=initial_state)
+                else:
+                    self.states = P.walk(len(self.stored_state), start=initial_state)
                 self.iter_states = iter(self.states)
 
             except UnboundLocalError:
@@ -752,6 +776,7 @@ class CC(multiprocessing.Process):
                     elif order == 'Stop':
                         if debug:
                             print '\t\t\tCC: stopping.'
+                        raise KeyboardInterrupt
                         break
 
                 elif self.CC_initialized:
@@ -849,6 +874,7 @@ class Bot(multiprocessing.Process):
                         self.qbot_CC.join()
                         if debug:
                             print '\t\tBot: stopping.'
+                        raise KeyboardInterrupt
                         break
                 else:
                     #if debug:
@@ -927,6 +953,7 @@ class Botnet(multiprocessing.Process):
 
                     elif order == 'Stop':
                         self.qbotnet_bot.put(order)
+                        self.qbotmaster_botnet.task_done()
                         if debug:
                             print '\tBotnet: stopping.'
                         break
@@ -967,7 +994,7 @@ class BotMaster(multiprocessing.Process):
         """
         Define the states and set the iterator
         """
-        states = ['Start','Nothing','Nothing','Nothing','Nothing','Nothing','Nothing','Nothing','Nothing','Nothing','Nothing','Nothing','Nothing','Nothing','Nothing','Nothing','Nothing','Nothing','Nothing','Nothing','Nothing','Nothing','Nothing', 'Nothing', 'Nothing', 'Nothing', 'Nothing', 'Nothing', 'Nothing', 'Nothing', 'Nothing', 'Nothing', 'Nothing', 'Nothing', 'Nothing', 'Nothing', 'Stop']
+        states = ['Start','Nothing','Nothing','Nothing','Nothing', 'Nothing', 'Nothing', 'Nothing', 'Nothing', 'Stop']
         self.iter_states = iter(states)
 
 
@@ -993,9 +1020,9 @@ class BotMaster(multiprocessing.Process):
         Function that knows how much time to wait between states
         """
         # Get a time with gauss mu=10 and std=1
-        # 24hs = 86400
-        # 1month = 2678400
-        t = random.gauss(2678400,1)
+        # 24hs = 1440
+        # 1month = 
+        t = random.gauss(1440,1)
         self.asleep(t * 60) # Should be minutes
 
 
@@ -1041,6 +1068,7 @@ class BotMaster(multiprocessing.Process):
 
                 if newstate == 'Stop':
                     self.qbotmaster_botnet.put(newstate)
+                    self.botnet.terminate()
                     self.network.terminate()
                     if debug:
                         print 'Botmaster: stopping. ({})'.format(self.bt)
@@ -1051,7 +1079,8 @@ class BotMaster(multiprocessing.Process):
         except KeyboardInterrupt:
             self.botnet.terminate()
             self.network.terminate()
-            print 'Botmaster stopped.'
+            if debug:
+                print 'Botmaster stopped.'
         except Exception as inst:
             if debug:
                 print '\tProblem with botmaster()'
