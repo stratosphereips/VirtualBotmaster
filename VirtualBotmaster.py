@@ -383,10 +383,14 @@ class CC(multiprocessing.Process):
 
                 # If the sleep time is huge, we usually need to compensate it with a near equal but opposite value. 
                 if self.need_to_compensate:
-                    sth = self.histograms['sth']
-                    value_to_compensate = -1
-                    while value_to_compensate <= 0:
-                        value_to_compensate = self.get_a_value_from_hist(sth,self.stb, type='time')
+                    try:
+                        sth = self.histograms['sth']
+                        value_to_compensate = -1
+                        while value_to_compensate <= 0:
+                            value_to_compensate = self.get_a_value_from_hist(sth,self.stb, type='time')
+                    except:
+                        # No sth stored! So just wait between 5 seconds mu with stdev 1
+                        value_to_compensate = random.gauss(5,1)
                     self.next_time_to_wait.append( value_to_compensate )
                     self.need_to_compensate = False
                     if debug > 1:
@@ -420,17 +424,22 @@ class CC(multiprocessing.Process):
             #self.label = 'flow=From-Botnet-V1-TCP-CC-HTTP-69'
             #self.label = 'flow=From-Botnet-V1-TCP-CC-HTTP-Custom-Encryption-62'
             #self.label = 'flow=From-Botnet-V1-TCP-CC-Custom-Encryption-100'
-            #self.label = 'flow=From-Botnet-V1-TCP-CC-Custom-Encryption-108'
+            self.label = 'flow=From-Botnet-V1-TCP-CC-Custom-Encryption-108'
             #self.label = 'flow=From-Botnet-V1-UDP-DNS'
-            self.label = 'flow=From-Botnet-V1-TCP-Custom-Encryption-20'
+            #self.label = 'flow=From-Botnet-V1-TCP-Custom-Encryption-20'
+            #self.label = 'flow=From-Botnet-V1-TCP-Custom-Encryption-38'
+            #self.label = 'flow=From-Botnet-V1-WEB-Established'
+            #self.label = 'flow=From-Botnet-V1-TCP-CC-Custom-Encryption-72'
 
             if 'TCP' in self.label:
                 self.proto = "TCP"
             elif 'UDP' in self.label:
                 self.proto = "UDP"
             else:
-                print 'Warning! No proto in the label.!'
-                exit(-1)
+                # By default TCP
+                self.proto = "TCP"
+                if debug:
+                    print 'Warning! No proto in the label.!'
 
             self.srcip = "10.0.0.2"
             self.srcport = "23442"
@@ -438,7 +447,8 @@ class CC(multiprocessing.Process):
             self.dstport = "80"
             self.protostate = "FSPA_FSA"
             self.ftos = "0"
-            self.length_of_state = 'Default' # Or user default
+            self.length_of_state = 0 # Or user default
+            #self.length_of_state = 5000 # Or user default
             self.flow_separator = ','
 
             if debug:
@@ -610,10 +620,12 @@ class CC(multiprocessing.Process):
 
             except:
                 print 'Error. The label {0} has no histogram stored.'.format(self.label)
+                raise KeyboardInterrupt
                 exit(-1)
 
             if not self.histograms:
                 print 'Error. There is not histograms to read.'
+                raise KeyboardInterrupt
                 exit(-1)
 
 
@@ -640,7 +652,6 @@ class CC(multiprocessing.Process):
 
             # Read all the models
             list_of_files = os.listdir(self.model_folder)
-            label_name = ""
 
             for file in list_of_files:
                 try:
@@ -652,17 +663,17 @@ class CC(multiprocessing.Process):
                             p = cPickle.load(input)
                         except:
                             if debug:
-                                print 'Error. The label {0} has no p stored.'.format(label_name)
+                                print 'Error. The label {0} has no p stored.'.format(self.label)
                         try:
                             P = cPickle.load(input)
                         except:
                             if debug:
-                                print 'Error. The label {0} has no P stored.'.format(label_name)
+                                print 'Error. The label {0} has no P stored.'.format(self.label)
                         try:
                             stored_state = cPickle.load(input)
                         except:
                             if debug:
-                                print 'Error. The label {0} has no state stored.'.format(label_name)
+                                print 'Error. The label {0} has no state stored.'.format(self.label)
                         try:
                             t1t2_vector = cPickle.load(input)
                             # The vector can have all the t1 t2 for all the 3tuples in this label. Pick the firsts ones.
@@ -670,13 +681,13 @@ class CC(multiprocessing.Process):
                             pass
                         except:
                             if debug:
-                                print 'Error. The label {0} has no t1 or t2 stored.'.format(label_name)
+                                print 'Error. The label {0} has no t1 or t2 stored.'.format(self.label)
                         try:
                             rel_median = cPickle.load(input)
                             pass
                         except:
                             if debug:
-                                print 'Error. The label {0} has no paq/bytes ratio stored.'.format(label_name)
+                                print 'Error. The label {0} has no paq/bytes ratio stored.'.format(self.label)
                         if debug > 6:
                             print '\tFile name : {}'.format(file_name)
                             print '\tp={}'.format(p)
@@ -685,7 +696,7 @@ class CC(multiprocessing.Process):
                             print '\tt1={}, t2={}'.format(t1,t2)
                             print '\tPaq/bytes rel={}'.format(rel_median)
                         input.close()
-                        label_name = file.split('.mcmodel')[0]
+                        #label_name = file.split('.mcmodel')[0]
 
                         self.p = p
                         self.P = P
@@ -698,31 +709,40 @@ class CC(multiprocessing.Process):
 
                         # If t1 is greater than the bigger value of the third time binn histogram, we should compensate
                         if t1 > self.ttb[-1]:
-                            sth = self.histograms['sth']
-                            value_to_compensate = -1
-                            while value_to_compensate <= 0:
-                                value_to_compensate = self.get_a_value_from_hist(sth, self.stb, type='time')
+                            try:
+                                sth = self.histograms['sth']
+                                value_to_compensate = -1
+                                while value_to_compensate <= 0:
+                                    value_to_compensate = self.get_a_value_from_hist(sth, self.stb, type='time')
+                            except:
+                                # No sth stored! So just wait between 5 seconds mu with stdev 1
+                                value_to_compensate = random.gauss(5,1)
                             self.next_time_to_wait.append( value_to_compensate )
                             self.need_to_compensate = False
                        
                         # If t2 is greater than the bigger value of the third time binn histogram, we should compensate
                         self.next_time_to_wait.append(t2)
                         if t2 > self.ttb[-1]:
-                            sth = self.histograms['sth']
-                            value_to_compensate = -1
-                            while value_to_compensate <= 0:
-                                value_to_compensate = self.get_a_value_from_hist(sth, self.stb, type='time')
+                            try:
+                                sth = self.histograms['sth']
+                                value_to_compensate = -1
+                                while value_to_compensate <= 0:
+                                    value_to_compensate = self.get_a_value_from_hist(sth, self.stb, type='time')
+                            except:
+                                # No sth stored! So just wait between 5 seconds mu with stdev 1
+                                value_to_compensate = random.gauss(5,1)
                             self.next_time_to_wait.append( value_to_compensate )
                             self.need_to_compensate = False
                 except:
-                    print 'Error. The label {0} has no model stored.'.format(label_name)
-                    exit(-1)
+                    print 'Error. The label {0} has no model stored.'.format(self.label)
+                    raise KeyboardInterrupt
+                    sys.exit(-1)
 
             # Generate the states for this CC
             try:
                 # Warning, without the initial_state, some chains can not generate the walk... like a bug in the libs?
                 initial_state = p.choose()
-                if self.length_of_state != 'Default':
+                if self.length_of_state != 0:
                     self.states = P.walk(self.length_of_state, start=initial_state)
                 else:
                     self.states = P.walk(len(self.stored_state), start=initial_state)
@@ -730,7 +750,7 @@ class CC(multiprocessing.Process):
 
             except UnboundLocalError:
                 print 'Error in the MC stored for this lable. Change it.'
-                exit(-1)
+                sys.exit(-1)
             if debug > 0:
                 print 'States generated: {}'.format(self.states)
 
@@ -777,7 +797,7 @@ class CC(multiprocessing.Process):
                     elif order == 'Stop':
                         if debug:
                             print '\t\t\tCC: stopping.'
-                        raise KeyboardInterrupt
+                        #raise KeyboardInterrupt
                         self.qbot_CC.task_done()
                         break
 
@@ -792,8 +812,11 @@ class CC(multiprocessing.Process):
                         # No more letters, so we are dead.
                         if debug > 2:
                             print 'ERROR! We run out of letters in the itarations... are we dead?'
+                        #raise KeyboardInterrupt
                         break
 
+                    if self.current_state == '0':
+                        self.go_next_state()
                     # For that letter and our current label, get the values for the netflows
                     if debug:
                         print 'Current state: {}'.format(self.current_state)
@@ -810,6 +833,7 @@ class CC(multiprocessing.Process):
         except KeyboardInterrupt:
             if debug:
                 print '\t\t\tCC stopped.'
+            raise
         except Exception as inst:
             if debug:
                 print '\tProblem with CC()'
@@ -872,13 +896,13 @@ class Bot(multiprocessing.Process):
                         self.qbotnet_bot.task_done()
 
                     elif order == 'Stop':
-                        self.qbot_CC.put(order)
-                        self.qbot_CC.join()
-                        self.cc1.terminate()
-                        raise KeyboardInterrupt
-                        self.qbotnet_bot.task_done()
                         if debug:
                             print '\t\tBot: stopping.'
+                        self.qbot_CC.put(order)
+                        #self.qbot_CC.join()
+                        #self.cc1.terminate()
+                        #raise KeyboardInterrupt
+                        self.qbotnet_bot.task_done()
                         break
                 else:
                     #if debug:
@@ -891,7 +915,7 @@ class Bot(multiprocessing.Process):
         except KeyboardInterrupt:
             if debug:
                 print '\t\tBot stopped.'
-            self.cc1.terminate()
+            raise
         except Exception as inst:
             if debug:
                 print '\tProblem with bot()'
@@ -958,9 +982,9 @@ class Botnet(multiprocessing.Process):
                     elif order == 'Stop':
                         self.qbotnet_bot.put(order)
                         #self.qbotnet_bot.join()
-                        self.bot.terminate()
+                        #self.bot.terminate()
                         self.qbotmaster_botnet.task_done()
-                        raise KeyboardInterrupt
+                        #raise KeyboardInterrupt
                         if debug:
                             print '\tBotnet: stopping.'
                         break
@@ -974,7 +998,7 @@ class Botnet(multiprocessing.Process):
         except KeyboardInterrupt:
             if debug:
                 print '\tBotnet: stopped.'
-            self.bot.terminate()
+            raise
         except Exception as inst:
             if debug:
                 print '\tProblem with botnet()'
@@ -1081,7 +1105,7 @@ class BotMaster(multiprocessing.Process):
                     self.qnetwork.put(newstate)
                     #self.qnetwork.join()
                     #self.network.terminate()
-                    raise KeyboardInterrupt
+                    #raise KeyboardInterrupt
                     if debug:
                         print 'Botmaster: stopping. ({})'.format(self.bt)
                     break
@@ -1091,6 +1115,7 @@ class BotMaster(multiprocessing.Process):
         except KeyboardInterrupt:
             if debug:
                 print 'Botmaster stopped.'
+            raise
         except Exception as inst:
             if debug:
                 print '\tProblem with botmaster()'
