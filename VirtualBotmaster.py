@@ -196,7 +196,8 @@ class CC(multiprocessing.Process):
                     break
 
         except StopIteration:
-            print 'ERROR! No more letters in the states'
+            if debug > 2:
+                print 'ERROR! No more letters in the states'
             raise
 
 
@@ -413,7 +414,8 @@ class CC(multiprocessing.Process):
             if debug:
                 print 'Reading the configuration file: {}'.format(self.conf_file)
             self.model_folder = 'MCModels'
-            self.label = 'flow=From-Botnet-V1-TCP-CC-HTTP-69'
+            #self.label = 'flow=From-Botnet-V1-TCP-CC-HTTP-69'
+            self.label = 'flow=From-Botnet-V1-TCP-CC-HTTP-Custom-Encryption-62'
 
             if 'TCP' in self.label:
                 self.proto = "TCP"
@@ -671,8 +673,27 @@ class CC(multiprocessing.Process):
                         self.stored_state = stored_state
                         self.t1 = t1
                         self.t2 = t2
+
                         self.next_time_to_wait.append(t1)
+
+                        # If t1 is greater than the bigger value of the third time binn histogram, we should compensate
+                        if t1 > self.ttb[-1]:
+                            sth = self.histograms['sth']
+                            value_to_compensate = -1
+                            while value_to_compensate <= 0:
+                                value_to_compensate = self.get_a_value_from_hist(sth, self.stb, type='time')
+                            self.next_time_to_wait.append( value_to_compensate )
+                            self.need_to_compensate = False
+                       
+                        # If t2 is greater than the bigger value of the third time binn histogram, we should compensate
                         self.next_time_to_wait.append(t2)
+                        if t2 > self.ttb[-1]:
+                            sth = self.histograms['sth']
+                            value_to_compensate = -1
+                            while value_to_compensate <= 0:
+                                value_to_compensate = self.get_a_value_from_hist(sth, self.stb, type='time')
+                            self.next_time_to_wait.append( value_to_compensate )
+                            self.need_to_compensate = False
                 except:
                     print 'Error. The label {0} has no model stored.'.format(label_name)
                     exit(-1)
@@ -715,10 +736,10 @@ class CC(multiprocessing.Process):
                     if order == 'Start':
                         # Read the conf file and extract what is meant for us.
                         self.read_conf()
-                        # Read the MC models
-                        self.read_mcmodels()
                         # Read the the histograms
                         self.read_histograms()
+                        # Read the MC models
+                        self.read_mcmodels()
 
                         self.CC_initialized = True
                         
@@ -742,7 +763,8 @@ class CC(multiprocessing.Process):
 
                     except StopIteration:
                         # No more letters, so we are dead.
-                        print 'ERROR! We run out of letters in the itarations... are we dead?'
+                        if debug > 2:
+                            print 'ERROR! We run out of letters in the itarations... are we dead?'
                         break
 
                     # For that letter and our current label, get the values for the netflows
