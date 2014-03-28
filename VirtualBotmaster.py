@@ -77,6 +77,16 @@ def usage():
     sys.exit(1)
 
 
+
+
+class Stop(Exception):
+    """
+    Custom exception to stop the procesess under some conditions such as there are no more states.
+    """
+    pass
+
+
+
 class Network(multiprocessing.Process):
     """
     A class thread to run the output in the network
@@ -102,10 +112,10 @@ class Network(multiprocessing.Process):
                     print 'StartTime,Dur,Proto,SrcAddr,Sport,Dir,DstAddr,Dport,State,sTos,TotPkts,TotBytes,Label'
                     continue
                 if flow == 'Stop':
-                    raise KeyboardInterrupt
                     self.qnetwork.task_done()
-
-                print flow
+                    break
+                else:
+                    print flow
 
         except KeyboardInterrupt:
             if debug:
@@ -187,21 +197,11 @@ class CC(multiprocessing.Process):
         Returns the next state the CC should be on.
         """
         try:
-            while True:
-                new_state = next(self.iter_states)
-                #print 'Candidate New state: {}'.format(new_state)
-                if new_state == '0':
-                #    print 'was 0!!'
-                    continue
-                elif new_state != '0':
-                #    print 'Changing to New state: {}'.format(new_state)
-                    self.current_state = next(self.iter_states)
-                    break
-
+            self.current_state = next(self.iter_states)
         except StopIteration:
             if debug > 2:
                 print 'ERROR! No more letters in the states'
-            raise
+            raise 
 
 
     def get_packets_from_bytes(self,size):
@@ -285,7 +285,7 @@ class CC(multiprocessing.Process):
                 # value (mostly because of time) can not be smaller than the next time to wait. 
                 diff = self.next_time_to_wait[-1] + value
                 if type == 'time' and self.next_time_to_wait[-1] >= 0 and diff < 0:
-                    if debug > 2:
+                    if debug > 6:
                         print 'Warning: time to wait:{}, value:{}'.format(self.next_time_to_wait[-1], value)
                     continue
 
@@ -423,8 +423,8 @@ class CC(multiprocessing.Process):
             self.model_folder = 'MCModels'
             #self.label = 'flow=From-Botnet-V1-TCP-CC-HTTP-69'
             #self.label = 'flow=From-Botnet-V1-TCP-CC-HTTP-Custom-Encryption-62'
-            #self.label = 'flow=From-Botnet-V1-TCP-CC-Custom-Encryption-100'
-            self.label = 'flow=From-Botnet-V1-TCP-CC-Custom-Encryption-108'
+            self.label = 'flow=From-Botnet-V1-TCP-CC-Custom-Encryption-100'
+            #self.label = 'flow=From-Botnet-V1-TCP-CC-Custom-Encryption-108'
             #self.label = 'flow=From-Botnet-V1-UDP-DNS'
             #self.label = 'flow=From-Botnet-V1-TCP-Custom-Encryption-20'
             #self.label = 'flow=From-Botnet-V1-TCP-Custom-Encryption-38'
@@ -447,8 +447,8 @@ class CC(multiprocessing.Process):
             self.dstport = "80"
             self.protostate = "FSPA_FSA"
             self.ftos = "0"
-            self.length_of_state = 0 # Or user default
-            #self.length_of_state = 5000 # Or user default
+            #self.length_of_state = 0 # Or user default
+            self.length_of_state = 10 # Or user default
             self.flow_separator = ','
 
             if debug:
@@ -620,13 +620,11 @@ class CC(multiprocessing.Process):
 
             except:
                 print 'Error. The label {0} has no histogram stored.'.format(self.label)
-                raise KeyboardInterrupt
-                exit(-1)
+                sys.exit(-1)
 
             if not self.histograms:
                 print 'Error. There is not histograms to read.'
-                raise KeyboardInterrupt
-                exit(-1)
+                sys.exit(-1)
 
 
         except Exception as inst:
@@ -735,7 +733,6 @@ class CC(multiprocessing.Process):
                             self.need_to_compensate = False
                 except:
                     print 'Error. The label {0} has no model stored.'.format(self.label)
-                    raise KeyboardInterrupt
                     sys.exit(-1)
 
             # Generate the states for this CC
@@ -744,15 +741,19 @@ class CC(multiprocessing.Process):
                 initial_state = p.choose()
                 if self.length_of_state != 0:
                     self.states = P.walk(self.length_of_state, start=initial_state)
+                    # We dont want to generate states 0. They are only a mark for a timeout. The timeouts will be generated alone with the times.
+                    self.states[:] = (value for value in self.states if value != '0')
                 else:
                     self.states = P.walk(len(self.stored_state), start=initial_state)
+                    # We dont want to generate states 0. They are only a mark for a timeout. The timeouts will be generated alone with the times.
+                    self.states[:] = (value for value in self.states if value != '0')
                 self.iter_states = iter(self.states)
 
             except UnboundLocalError:
                 print 'Error in the MC stored for this lable. Change it.'
                 sys.exit(-1)
             if debug > 0:
-                print 'States generated: {}'.format(self.states)
+                print 'States generated: {} ({})'.format(self.states, len(self.states))
 
 
         except Exception as inst:
@@ -797,7 +798,6 @@ class CC(multiprocessing.Process):
                     elif order == 'Stop':
                         if debug:
                             print '\t\t\tCC: stopping.'
-                        #raise KeyboardInterrupt
                         self.qbot_CC.task_done()
                         break
 
@@ -805,18 +805,15 @@ class CC(multiprocessing.Process):
                     # No orders, so search for the next state and generate the NetFlows
                     try:
                         self.go_next_state()
-                        if self.current_state == '0':
-                            self.go_next_state()
 
                     except StopIteration:
                         # No more letters, so we are dead.
-                        if debug > 2:
-                            print 'ERROR! We run out of letters in the itarations... are we dead?'
-                        #raise KeyboardInterrupt
+                        if debug:
+                            print '\t\t\tCC stopped because the end of states.'
+                        self.qbot_CC.put('Stopping')
+                        #self.qbot_CC.join()
                         break
 
-                    if self.current_state == '0':
-                        self.go_next_state()
                     # For that letter and our current label, get the values for the netflows
                     if debug:
                         print 'Current state: {}'.format(self.current_state)
@@ -899,17 +896,26 @@ class Bot(multiprocessing.Process):
                         if debug:
                             print '\t\tBot: stopping.'
                         self.qbot_CC.put(order)
-                        #self.qbot_CC.join()
-                        #self.cc1.terminate()
-                        #raise KeyboardInterrupt
+                        # What is this task_done for?
                         self.qbotnet_bot.task_done()
+                        break
+
+                # Check if we have msg from cc
+                if not self.qbot_CC.empty():
+                    order = self.qbot_CC.get(0.1)
+                    if order == 'Stopping':
+                        # The CC has stopped. So stop. Be careful when we have multiple CCs.
+                        if debug:
+                            print '\t\tBot: stopping because CC stopped.'
+                        self.qbot_CC.task_done()
+                        self.qbotnet_bot.put('Stopping')
                         break
                 else:
                     #if debug:
                     #    print '\t\tBot: Idle...'
-                    #self.qnetwork.put('Bot: Normal flow')
-                    #self.asleep(1)
                     pass
+            #if debug:
+            #    print '\t\tBot: out.'
 
 
         except KeyboardInterrupt:
@@ -981,18 +987,25 @@ class Botnet(multiprocessing.Process):
 
                     elif order == 'Stop':
                         self.qbotnet_bot.put(order)
-                        #self.qbotnet_bot.join()
-                        #self.bot.terminate()
                         self.qbotmaster_botnet.task_done()
-                        #raise KeyboardInterrupt
                         if debug:
                             print '\tBotnet: stopping.'
+                        break
+
+                # Check if we have msg from bot
+                elif not self.qbotnet_bot.empty():
+                    order = self.qbotnet_bot.get()
+                    if order == 'Stopping':
+                        if debug:
+                            print '\tBotnet: stopping because bot stopped.'
+                        self.qbotmaster_botnet.put('Stopping')
                         break
                 else:
                     #if debug:
                     #    print '\tBotnet: Idle {}'.format(datetime.now())
-                    #self.asleep(1)
                     pass
+            #if debug:
+                #print '\tBotnet: out.'
 
 
         except KeyboardInterrupt:
@@ -1025,7 +1038,8 @@ class BotMaster(multiprocessing.Process):
         """
         Define the states and set the iterator
         """
-        states = ['Start','Nothing','Nothing','Nothing','Nothing', 'Nothing', 'Nothing', 'Nothing', 'Nothing', 'Stop']
+        #states = ['Start','Nothing','Nothing','Nothing','Nothing','Nothing', 'Stop']
+        states = ['Start','Nothing','Nothing','Nothing','Nothing','Nothing']
         self.iter_states = iter(states)
 
 
@@ -1033,7 +1047,10 @@ class BotMaster(multiprocessing.Process):
         """
         Returns the next state the botmaster should be on.
         """
-        next_state = next(self.iter_states)
+        try:
+            next_state = next(self.iter_states)
+        except StopIteration:
+            next_state = "Waiting to die"
         return next_state
     
 
@@ -1052,7 +1069,7 @@ class BotMaster(multiprocessing.Process):
         """
         # Get a time with gauss mu=10 and std=1
         # 24hs = 1440
-        # 1month = 
+        # 1hs = 60
         t = random.gauss(1440,1)
         self.asleep(t * 60) # Should be minutes
 
@@ -1086,6 +1103,7 @@ class BotMaster(multiprocessing.Process):
                 # Get new state
                 newstate = self.get_state()
                 
+
                 if newstate == 'Start' or newstate == 'Stop':
 
                     if debug:
@@ -1099,18 +1117,26 @@ class BotMaster(multiprocessing.Process):
 
                 if newstate == 'Stop':
                     self.qbotmaster_botnet.put(newstate)
-                    #self.qbotmaster_botnet.join()
-                    #self.botnet.terminate()
-
                     self.qnetwork.put(newstate)
-                    #self.qnetwork.join()
-                    #self.network.terminate()
-                    #raise KeyboardInterrupt
                     if debug:
                         print 'Botmaster: stopping. ({})'.format(self.bt)
                     break
 
+                # Check if we have msg from botmaster
+                if not self.qbotmaster_botnet.empty():
+                    order = self.qbotmaster_botnet.get()
+
+                    if order == 'Stopping':
+                        self.qnetwork.put('Stop')
+                        if debug:
+                            print 'Botmaster: stopping because botnet stopped. ({})'.format(self.bt)
+                        break
+
+
                 self.wait_next_state()
+
+            #if debug:
+                #print 'Botmaster: out'
 
         except KeyboardInterrupt:
             if debug:
@@ -1155,6 +1181,10 @@ def main():
         ######################
         botmaster = BotMaster(accel, conf_file)
         botmaster.start()
+        botmaster.join()
+        botmaster.terminate()
+        if debug > 6:
+            print 'Out of everything.'
 
     except KeyboardInterrupt:
         # CTRL-C pretty handling.
