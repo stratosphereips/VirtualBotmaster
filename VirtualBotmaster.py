@@ -184,13 +184,6 @@ class CC(multiprocessing.Process):
         # Time that is the max we can substract from to have valids TD. We can not substract more than this because we can not go back in time.
         self.max_accumulated_time = 0
 
-    #def init_states(self):
-    #    """
-    #    Define the states and set the iterator
-    #    """
-    #    states = ['Idle','commandActivity', 'maintenanceActivity', 'DownCC', 'InitCC']
-    #    self.iter_states = iter(states)
-
 
     def go_next_state(self):
         """
@@ -421,15 +414,41 @@ class CC(multiprocessing.Process):
             if debug:
                 print 'Reading the configuration file: {}'.format(self.conf_file)
             self.model_folder = 'MCModels'
-            #self.label = 'flow=From-Botnet-V1-TCP-CC-HTTP-69'
-            #self.label = 'flow=From-Botnet-V1-TCP-CC-HTTP-Custom-Encryption-62'
+            """
+            self.label = 'flow=From-Botnet-V1-TCP-Custom-Encryption-20'
+            self.label = 'flow=From-Botnet-V1-TCP-Custom-Encryption-38'
+            """
+            self.label = 'flow=From-Botnet-V1-UDP-DNS'
+            """
+            self.label = 'flow=From-Botnet-V1-WEB-Established'
             self.label = 'flow=From-Botnet-V1-TCP-CC-Custom-Encryption-100'
-            #self.label = 'flow=From-Botnet-V1-TCP-CC-Custom-Encryption-108'
-            #self.label = 'flow=From-Botnet-V1-UDP-DNS'
-            #self.label = 'flow=From-Botnet-V1-TCP-Custom-Encryption-20'
-            #self.label = 'flow=From-Botnet-V1-TCP-Custom-Encryption-38'
-            #self.label = 'flow=From-Botnet-V1-WEB-Established'
-            #self.label = 'flow=From-Botnet-V1-TCP-CC-Custom-Encryption-72'
+            self.label = 'flow=From-Botnet-V1-TCP-CC-Custom-Encryption-102'
+            self.label = 'flow=From-Botnet-V1-TCP-CC-Custom-Encryption-108'
+            self.label = 'flow=From-Botnet-V1-TCP-CC-Custom-Encryption-116'
+            self.label = 'flow=From-Botnet-V1-TCP-CC-Custom-Encryption-67'
+            self.label = 'flow=From-Botnet-V1-TCP-CC-Custom-Encryption-68'
+            self.label = 'flow=From-Botnet-V1-TCP-CC-Custom-Encryption-72'
+            self.label = 'flow=From-Botnet-V1-TCP-CC-Custom-Encryption-73'
+            self.label = 'flow=From-Botnet-V1-TCP-CC-Custom-Encryption-74'
+            self.label = 'flow=From-Botnet-V1-TCP-CC-Custom-Encryption-75'
+            self.label = 'flow=From-Botnet-V1-TCP-CC-Custom-Encryption-76'
+            self.label = 'flow=From-Botnet-V1-TCP-CC-Custom-Encryption-77'
+            self.label = 'flow=From-Botnet-V1-TCP-CC-Custom-Encryption-78'
+            self.label = 'flow=From-Botnet-V1-TCP-CC-Custom-Encryption-79'
+            self.label = 'flow=From-Botnet-V1-TCP-CC-Custom-Encryption-82'
+            self.label = 'flow=From-Botnet-V1-TCP-CC-Custom-Encryption-83'
+            self.label = 'flow=From-Botnet-V1-TCP-CC-Custom-Encryption-84'
+            self.label = 'flow=From-Botnet-V1-TCP-CC-Custom-Encryption-88'
+            self.label = 'flow=From-Botnet-V1-TCP-CC-Custom-Encryption-89'
+            self.label = 'flow=From-Botnet-V1-TCP-CC-Custom-Encryption-90'
+            self.label = 'flow=From-Botnet-V1-TCP-CC-Custom-Encryption-93'
+            self.label = 'flow=From-Botnet-V1-TCP-CC-Custom-Encryption-99'
+            self.label = 'flow=From-Botnet-V1-TCP-CC-HTTP-69'
+            self.label = 'flow=From-Botnet-V1-TCP-CC-HTTP-Custom-Encryption-62'
+            self.label = 'flow=From-Botnet-V1-TCP-CC-HTTP-Custom-Encryption-70'
+            self.label = 'flow=From-Botnet-V1-TCP-CC-HTTP-Custom-Encryption-71'
+            self.label = 'flow=From-Botnet-V1-TCP-CC-HTTP-Custom-Encryption-80'
+            """
 
             if 'TCP' in self.label:
                 self.proto = "TCP"
@@ -693,9 +712,10 @@ class CC(multiprocessing.Process):
                             print '\tstate={}(...)'.format(stored_state[0:200])
                             print '\tt1={}, t2={}'.format(t1,t2)
                             print '\tPaq/bytes rel={}'.format(rel_median)
-                        input.close()
-                        #label_name = file.split('.mcmodel')[0]
 
+                        input.close()
+
+                        # Store the data
                         self.p = p
                         self.P = P
                         self.stored_state = stored_state
@@ -703,8 +723,8 @@ class CC(multiprocessing.Process):
                         self.t2 = t2
                         self.rel_median = rel_median
 
+                        # Wait t1
                         self.next_time_to_wait.append(t1)
-
                         # If t1 is greater than the bigger value of the third time binn histogram, we should compensate
                         if t1 > self.ttb[-1]:
                             try:
@@ -717,9 +737,10 @@ class CC(multiprocessing.Process):
                                 value_to_compensate = random.gauss(5,1)
                             self.next_time_to_wait.append( value_to_compensate )
                             self.need_to_compensate = False
-                       
-                        # If t2 is greater than the bigger value of the third time binn histogram, we should compensate
+
+                        # Wait t2
                         self.next_time_to_wait.append(t2)
+                        # If t2 is greater than the bigger value of the third time binn histogram, we should compensate
                         if t2 > self.ttb[-1]:
                             try:
                                 sth = self.histograms['sth']
@@ -731,6 +752,7 @@ class CC(multiprocessing.Process):
                                 value_to_compensate = random.gauss(5,1)
                             self.next_time_to_wait.append( value_to_compensate )
                             self.need_to_compensate = False
+                       
                 except:
                     print 'Error. The label {0} has no model stored.'.format(self.label)
                     sys.exit(-1)
@@ -743,10 +765,16 @@ class CC(multiprocessing.Process):
                     self.states = P.walk(self.length_of_state, start=initial_state)
                     # We dont want to generate states 0. They are only a mark for a timeout. The timeouts will be generated alone with the times.
                     self.states[:] = (value for value in self.states if value != '0')
+                    # This is the correct order of insertion, because of the 0
+                    self.states.insert(0, self.stored_state[1:2])
+                    self.states.insert(0, self.stored_state[0:1])
                 else:
                     self.states = P.walk(len(self.stored_state), start=initial_state)
                     # We dont want to generate states 0. They are only a mark for a timeout. The timeouts will be generated alone with the times.
                     self.states[:] = (value for value in self.states if value != '0')
+                    # This is the correct order of insertion, because of the 0
+                    self.states.insert(0, self.stored_state[1:2])
+                    self.states.insert(0, self.stored_state[0:1])
                 self.iter_states = iter(self.states)
 
             except UnboundLocalError:
