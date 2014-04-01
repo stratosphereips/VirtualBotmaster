@@ -40,6 +40,8 @@ import random
 import pykov
 import operator
 import cPickle
+import ConfigParser
+
 
 ####################
 # Global Variables
@@ -159,6 +161,7 @@ class CC(multiprocessing.Process):
         self.stored_state = ""
         self.t1 = -1
         self.t2 = -1
+        self.prob_longest_state = -1
 
         # States for this run of the CC
         self.states = ""
@@ -184,6 +187,14 @@ class CC(multiprocessing.Process):
         # Time that is the max we can substract from to have valids TD. We can not substract more than this because we can not go back in time.
         self.max_accumulated_time = 0
 
+        self.linux_source_port_range = [32768,61000]
+        self.windows_vista_7_and_8_port_range = [49152,65535]
+        self.windows_xp_port_range = [1024,4999]
+        self.malware = [1030,65535]
+        self.current_source_port = 1030
+        self.lower_source_port = 1030
+        self.upper_source_port = 65535
+
 
     def go_next_state(self):
         """
@@ -195,6 +206,29 @@ class CC(multiprocessing.Process):
             if debug > 2:
                 print 'ERROR! No more letters in the states'
             raise 
+
+    def get_source_port(self):
+        """
+        Get a new source port according to the operating system selected
+        """
+        try:
+            global debug
+
+            if self.current_source_port >= self.lower_source_port and self.current_source_port < self.upper_source_port :
+                self.current_source_port += 1
+            elif self.current_source_port == self.upper_source_port:
+                self.current_source_port = self.current_source_port + 1
+            else:
+                self.current_source_port = self.current_source_port
+
+
+        except Exception as inst:
+            if debug:
+                print '\tProblem with get_source_port() in CC class'
+            print type(inst)     # the exception instance
+            print inst.args      # arguments stored in .args
+            print inst           # __str__ allows args to printed directly
+            sys.exit(1)
 
 
     def get_packets_from_bytes(self,size):
@@ -347,12 +381,13 @@ class CC(multiprocessing.Process):
             dur = str('{:.3f}'.format(duration))
             proto = self.proto
             srcaddr = self.srcip
-            sport = self.srcport
+            self.get_source_port()
+            sport = str(self.current_source_port)
             dir = "->"
             dstaddr = self.dstaddr
             dport = self.dstport
             state = self.protostate
-            tos = "0"
+            tos = self.tos
             packets = str(self.get_packets_from_bytes(size))
             bytes = str(int(size))
             label = self.label
@@ -413,62 +448,69 @@ class CC(multiprocessing.Process):
             global debug
             if debug:
                 print 'Reading the configuration file: {}'.format(self.conf_file)
-            self.model_folder = 'MCModels'
-            """
-            self.label = 'flow=From-Botnet-V1-TCP-Custom-Encryption-20'
-            self.label = 'flow=From-Botnet-V1-TCP-Custom-Encryption-38'
-            """
-            self.label = 'flow=From-Botnet-V1-UDP-DNS'
-            """
-            self.label = 'flow=From-Botnet-V1-WEB-Established'
-            self.label = 'flow=From-Botnet-V1-TCP-CC-Custom-Encryption-100'
-            self.label = 'flow=From-Botnet-V1-TCP-CC-Custom-Encryption-102'
-            self.label = 'flow=From-Botnet-V1-TCP-CC-Custom-Encryption-108'
-            self.label = 'flow=From-Botnet-V1-TCP-CC-Custom-Encryption-116'
-            self.label = 'flow=From-Botnet-V1-TCP-CC-Custom-Encryption-67'
-            self.label = 'flow=From-Botnet-V1-TCP-CC-Custom-Encryption-68'
-            self.label = 'flow=From-Botnet-V1-TCP-CC-Custom-Encryption-72'
-            self.label = 'flow=From-Botnet-V1-TCP-CC-Custom-Encryption-73'
-            self.label = 'flow=From-Botnet-V1-TCP-CC-Custom-Encryption-74'
-            self.label = 'flow=From-Botnet-V1-TCP-CC-Custom-Encryption-75'
-            self.label = 'flow=From-Botnet-V1-TCP-CC-Custom-Encryption-76'
-            self.label = 'flow=From-Botnet-V1-TCP-CC-Custom-Encryption-77'
-            self.label = 'flow=From-Botnet-V1-TCP-CC-Custom-Encryption-78'
-            self.label = 'flow=From-Botnet-V1-TCP-CC-Custom-Encryption-79'
-            self.label = 'flow=From-Botnet-V1-TCP-CC-Custom-Encryption-82'
-            self.label = 'flow=From-Botnet-V1-TCP-CC-Custom-Encryption-83'
-            self.label = 'flow=From-Botnet-V1-TCP-CC-Custom-Encryption-84'
-            self.label = 'flow=From-Botnet-V1-TCP-CC-Custom-Encryption-88'
-            self.label = 'flow=From-Botnet-V1-TCP-CC-Custom-Encryption-89'
-            self.label = 'flow=From-Botnet-V1-TCP-CC-Custom-Encryption-90'
-            self.label = 'flow=From-Botnet-V1-TCP-CC-Custom-Encryption-93'
-            self.label = 'flow=From-Botnet-V1-TCP-CC-Custom-Encryption-99'
-            self.label = 'flow=From-Botnet-V1-TCP-CC-HTTP-69'
-            self.label = 'flow=From-Botnet-V1-TCP-CC-HTTP-Custom-Encryption-62'
-            self.label = 'flow=From-Botnet-V1-TCP-CC-HTTP-Custom-Encryption-70'
-            self.label = 'flow=From-Botnet-V1-TCP-CC-HTTP-Custom-Encryption-71'
-            self.label = 'flow=From-Botnet-V1-TCP-CC-HTTP-Custom-Encryption-80'
-            """
 
+            config = ConfigParser.RawConfigParser()
+            config.read(self.conf_file)
+            try:
+                self.length_of_state = config.getint('CC', 'length_of_state')
+                self.label = config.get('CC', 'label')
+                self.model_folder = config.get('DEFAULT', 'markov_models_folder')
+                self.proto = config.get('CC', 'protocol')
+                self.srcip = config.get('Bot', 'srcip')
+                self.dstaddr = config.get('CC', 'dstip')
+                self.dstport = config.get('CC', 'dstport')
+                self.flow_separator = config.get('DEFAULT', 'flow_separator')
+                self.srcport = config.get('CC', 'srcport')
+                
+                #print self.length_of_state, self.label, self.model_folder, self.proto, self.srcip, self.dstaddr, self.dstport, self.flow_separator
+            except:
+                print 'Some critical error reading in the config file for the CC.'
+                sys.exit(-1)
+
+            # Get the label protocol
             if 'TCP' in self.label:
-                self.proto = "TCP"
+                label_protocol = "TCP"
             elif 'UDP' in self.label:
-                self.proto = "UDP"
+                label_protocol = "UDP"
             else:
                 # By default TCP
-                self.proto = "TCP"
+                label_protocol = "TCP"
                 if debug:
                     print 'Warning! No proto in the label.!'
 
-            self.srcip = "10.0.0.2"
-            self.srcport = "23442"
-            self.dstaddr = "212.1.1.2"
-            self.dstport = "80"
+            # Process the proto
+            if self.proto == 'Default':
+                self.proto = label_protocol
+            elif 'TCP' not in self.proto and 'UDP' not in self.proto:
+                # If we don't know, 
+                self.proto = label_protocol
+
+
+            # define the source port from the operating system
+            if 'WindowsXP' in self.srcport:
+                self.lower_source_port = self.windows_xp_port_range[0]
+                self.upper_source_port = self.windows_xp_port_range[1]
+            elif 'Windows7' in self.srcport:
+                self.lower_source_port = self.windows_vista_7_and_8_port_range[0]
+                self.upper_source_port = self.windows_vista_7_and_8_port_range[1]
+            elif 'Linux' in self.srcport:
+                self.lower_source_port = self.linux_source_port_range[0]
+                self.upper_source_port = self.linux_source_port_range[1]
+            elif 'Malware' in self.srcport:
+                self.lower_source_port = self.malware[0]
+                self.upper_source_port = self.malware[1]
+            elif type(self.srcport) is str and int(self.srcport) >= 0 and int(self.srcport) <= 65535:
+                self.lower_source_port = self.srcport[0]
+                self.upper_source_port = self.srcport[1]
+            else:
+                self.lower_source_port = 1030
+                self.upper_source_port = 1030
+
+
+            # For the time being, always 0
+            self.tos = "0"
+
             self.protostate = "FSPA_FSA"
-            self.ftos = "0"
-            #self.length_of_state = 0 # Or user default
-            self.length_of_state = 10 # Or user default
-            self.flow_separator = ','
 
             if debug:
                 print 'Label for CC: {}'.format(self.label)
@@ -619,6 +661,8 @@ class CC(multiprocessing.Process):
                 print 'Reading the histograms...'
             try:
                 file_name = self.model_folder+'/labels.histograms'
+                if debug > 5:
+                    print 'Reading histogram from file : {}'.format(file_name)
                 input = open(file_name, 'rb')
                 histograms = cPickle.load(input)
                 self.stb = cPickle.load(input)
@@ -695,16 +739,19 @@ class CC(multiprocessing.Process):
                             t1t2_vector = cPickle.load(input)
                             # The vector can have all the t1 t2 for all the 3tuples in this label. Pick the firsts ones.
                             (t1,t2) = t1t2_vector[0]
-                            pass
                         except:
                             if debug:
                                 print 'Error. The label {0} has no t1 or t2 stored.'.format(self.label)
                         try:
                             rel_median = cPickle.load(input)
-                            pass
                         except:
                             if debug:
                                 print 'Error. The label {0} has no paq/bytes ratio stored.'.format(self.label)
+                        try:
+                            prob_longest_state = cPickle.load(input)
+                        except:
+                            if debug:
+                                print 'Error. The label {0} has no prob of the longest state stored.'.format(self.label)
                         if debug > 6:
                             print '\tFile name : {}'.format(file_name)
                             print '\tp={}'.format(p)
@@ -712,6 +759,7 @@ class CC(multiprocessing.Process):
                             print '\tstate={}(...)'.format(stored_state[0:200])
                             print '\tt1={}, t2={}'.format(t1,t2)
                             print '\tPaq/bytes rel={}'.format(rel_median)
+                            print '\tProb longest state={}'.format(prob_longest_state)
 
                         input.close()
 
@@ -722,6 +770,7 @@ class CC(multiprocessing.Process):
                         self.t1 = t1
                         self.t2 = t2
                         self.rel_median = rel_median
+                        self.prob_longest_state = prob_longest_state
 
                         # Wait t1
                         self.next_time_to_wait.append(t1)
