@@ -41,6 +41,7 @@ import pykov
 import operator
 import cPickle
 import ConfigParser
+import math
 
 
 ####################
@@ -151,6 +152,10 @@ class CC(multiprocessing.Process):
         self.conf_file = conf_file
 
         self.CC_initialized = False
+
+        # If this variable is False, the CC will stop alone.
+        self.running = True
+
         # Botnet time. Starts now.
         self.bt = datetime.now()
         #self.init_states()
@@ -165,7 +170,7 @@ class CC(multiprocessing.Process):
 
         # States for this run of the CC
         self.states = ""
-
+        self.current_state = ""
         self.iter_states = ""
 
         self.histograms = []
@@ -179,7 +184,7 @@ class CC(multiprocessing.Process):
         self.ssb = []
         self.tsb = []
 
-        self.next_time_to_wait = deque([])
+        self.nexts_times_to_wait = deque([])
 
         # If we need to compensate a huge time value with an opposite
         self.need_to_compensate = False
@@ -206,6 +211,37 @@ class CC(multiprocessing.Process):
             if debug > 2:
                 print 'ERROR! No more letters in the states'
             raise 
+
+
+    def get_flow_state(self):
+        """
+        Get a new source port according to the operating system selected
+        """
+        try:
+            global debug
+           
+            if 'UDP' in self.label and 'Attempt' in self.label:
+                # UDP Attempt
+                self.protostate = "INT"
+            elif 'UDP' in self.label: # We don't care if it says establised or not
+                # UDP Established
+                self.protostate = "CON"
+            elif 'TCP' in self.label:
+                self.protostate = "FSPA_FSPA"
+            else: 
+                # Assume TCP
+                self.protostate = "FSPA_FSPA"
+
+
+
+        except Exception as inst:
+            if debug:
+                print '\tProblem with get_flow_state() in CC class'
+            print type(inst)     # the exception instance
+            print inst.args      # arguments stored in .args
+            print inst           # __str__ allows args to printed directly
+            sys.exit(1)
+
 
     def get_source_port(self):
         """
@@ -236,14 +272,22 @@ class CC(multiprocessing.Process):
         Given an amount of bytes, get the amount of packets
         """
         try:
+
+
             global debug
             packets = 1
-            if size <= 60:
+            if size <= 120:
                 packets = 1
-            elif size <= 120:
-                packets = 2
             elif size > 120:
-                packets = int(size * self.rel_median)
+                # Biggest tcp packet can have 1500 bytes
+                minimum_packets = int(size / 1500)
+                # Smallest tcp packet can have 41 bytes
+                maximum_packets = int(size / 41)
+                packets = int(math.ceil(float(size * self.rel_median * self.packets_to_bytes_ratio)))
+                if packets < minimum_packets:
+                    packets = minimum_packets
+                elif packets > maximum_packets:
+                    packets = maximum_packets
 
             return packets
 
@@ -310,10 +354,10 @@ class CC(multiprocessing.Process):
                 value = random.uniform(min, max)
 
                 # value (mostly because of time) can not be smaller than the next time to wait. 
-                diff = self.next_time_to_wait[-1] + value
-                if type == 'time' and self.next_time_to_wait[-1] >= 0 and diff < 0:
+                diff = self.nexts_times_to_wait[-1] + value
+                if type == 'time' and self.nexts_times_to_wait[-1] >= 0 and diff < 0:
                     if debug > 6:
-                        print 'Warning: time to wait:{}, value:{}'.format(self.next_time_to_wait[-1], value)
+                        print 'Warning: time to wait:{}, value:{}'.format(self.nexts_times_to_wait[-1], value)
                     continue
 
                 # On which bin is the value?
@@ -344,6 +388,10 @@ class CC(multiprocessing.Process):
                 if hist_prob > prob:
                     if debug > 2:
                         print '\tValue {} selected with prob {}'.format(value, prob)
+
+                    # Do we have a time adjustment from the config file?
+                    if type == 'time':
+                        value = value * self.times_adjustment
                     return value
                 else:
                     selected_bin = False
@@ -364,17 +412,17 @@ class CC(multiprocessing.Process):
         """
         time.sleep(t/self.accel)
         time_diff = timedelta(seconds=t)
+        time_diff = timedelta(seconds=t)
         self.bt += time_diff
         #if debug:
             #print 'Real time: {}, Botnet time: {}'.format(datetime.now(), self.bt)
 
 
-    def build_netflow(self, time, duration, size):
+    def build_netflow(self, duration, size):
         """
         Build the netflow and send it to the Network
         """
         try:
-#
             # Select the values for each field of the flow according to the Markov Chain
             # StartTime Dur Proto SrcAddr Sport Dir DstAddr Dport State sTos dTos TotPkts TotBytes Label
             starttime = str(self.bt)
@@ -383,9 +431,10 @@ class CC(multiprocessing.Process):
             srcaddr = self.srcip
             self.get_source_port()
             sport = str(self.current_source_port)
-            dir = "->"
+            dir = "<->"
             dstaddr = self.dstaddr
             dport = self.dstport
+            self.get_flow_state()
             state = self.protostate
             tos = self.tos
             packets = str(self.get_packets_from_bytes(size))
@@ -396,18 +445,45 @@ class CC(multiprocessing.Process):
 
             self.qnetwork.put(flow)
 
+        except Exception as inst:
+            if debug:
+                print '\tProblem with build_netflow in CC class'
+            print type(inst)     # the exception instance
+            print inst.args      # arguments stored in .args
+            print inst           # __str__ allows args to printed directly
+            sys.exit(1)
+
+
+    def compute_sleep_time(self, time):
+        """
+        Get a TD and compute the actual time we have to sleep.
+        """
+        try:
+            global debug
+
             # Sleep time is the implementation of how much we wait, that is, of periodicity and is very important!
             # t3 = time + t2
             try: 
                 # Next sleeptime
-                last_time_in_queue = self.next_time_to_wait[-1]
-                self.next_time_to_wait.append( time + last_time_in_queue )
+                last_time_in_queue = self.nexts_times_to_wait[-1]
+                self.nexts_times_to_wait.append( time + last_time_in_queue )
 
 
                 # This is the t to wait now
-                sleep_time = self.next_time_to_wait.popleft()
+                sleep_time = self.nexts_times_to_wait.popleft()
+                
+                self.length_of_state_in_time -= sleep_time
+                if self.length_of_state_in_time <= 0:
+                    if debug > 0:
+                        print 'Run out of time. Stopping the CC.'
+                    self.running = False
+                        
+                if debug:
+                    print 'Sleeping: {}'.format(sleep_time)
+
+
                 if debug > 1:
-                    print 'Going to sleep: {}, TD selected: {}, Queue: {}'.format(sleep_time, time, self.next_time_to_wait)
+                    print 'Going to sleep: {}, TD selected: {}, Queue: {}'.format(sleep_time, time, self.nexts_times_to_wait)
 
                 # If the sleep time is huge, we usually need to compensate it with a near equal but opposite value. 
                 if self.need_to_compensate:
@@ -419,7 +495,7 @@ class CC(multiprocessing.Process):
                     except:
                         # No sth stored! So just wait between 5 seconds mu with stdev 1
                         value_to_compensate = random.gauss(5,1)
-                    self.next_time_to_wait.append( value_to_compensate )
+                    self.nexts_times_to_wait.append( value_to_compensate )
                     self.need_to_compensate = False
                     if debug > 1:
                         print 'Compensation Sleep time added: {}'.format( value_to_compensate )
@@ -433,11 +509,12 @@ class CC(multiprocessing.Process):
 
         except Exception as inst:
             if debug:
-                print '\tProblem with build_netflow in CC class'
+                print '\tProblem with compute_sleep_time in CC class'
             print type(inst)     # the exception instance
             print inst.args      # arguments stored in .args
             print inst           # __str__ allows args to printed directly
             sys.exit(1)
+
 
 
     def read_conf(self):
@@ -452,7 +529,8 @@ class CC(multiprocessing.Process):
             config = ConfigParser.RawConfigParser()
             config.read(self.conf_file)
             try:
-                self.length_of_state = config.getint('CC', 'length_of_state')
+                self.length_of_state_in_flows = config.getint('CC', 'length_of_state_in_flows')
+                self.length_of_state_in_time = config.getint('CC', 'length_of_state_in_time') * 60 # Should be minutes.
                 self.label = config.get('CC', 'label')
                 self.model_folder = config.get('DEFAULT', 'markov_models_folder')
                 self.proto = config.get('CC', 'protocol')
@@ -461,10 +539,12 @@ class CC(multiprocessing.Process):
                 self.dstport = config.get('CC', 'dstport')
                 self.flow_separator = config.get('DEFAULT', 'flow_separator')
                 self.srcport = config.get('CC', 'srcport')
+                self.packets_to_bytes_ratio = config.getfloat('CC', 'packets_to_bytes_ratio')
+                self.delay_in_start_vector = config.get('CC', 'delay_in_start').split(',')
+                self.times_adjustment = config.getfloat('CC', 'times_adjustment')
                 
-                #print self.length_of_state, self.label, self.model_folder, self.proto, self.srcip, self.dstaddr, self.dstport, self.flow_separator
             except:
-                print 'Some critical error reading in the config file for the CC.'
+                print 'Some critical error reading in the config file for the CC. Maybe some syntax error.'
                 sys.exit(-1)
 
             # Get the label protocol
@@ -507,11 +587,17 @@ class CC(multiprocessing.Process):
                 self.upper_source_port = 1030
             self.current_source_port = self.lower_source_port 
 
-
             # For the time being, always 0
             self.tos = "0"
 
-            self.protostate = "FSPA_FSA"
+            # Compute the delay in start
+            try:
+                mu = float(self.delay_in_start_vector[0]) * 60 # Should be minutes
+                stdev = float(self.delay_in_start_vector[1]) * 60 # Should be minutes
+                self.delay_in_start = random.gauss(mu, stdev)
+            except:
+                self.delay_in_start = 0
+
 
             if debug:
                 print 'Label for CC: {}'.format(self.label)
@@ -542,6 +628,7 @@ class CC(multiprocessing.Process):
                 try:
                     sth = self.histograms['sth']
                     time = self.get_a_value_from_hist(sth,self.stb, type='time')
+
                     if debug > 2:
                         print '\tFor 2th time, value generated: {}'.format(time)
                 except:
@@ -580,7 +667,6 @@ class CC(multiprocessing.Process):
                 try:
                     fdh = self.histograms['fdh']
                     duration = self.get_a_value_from_hist(fdh,self.fdb, type='duration')
-
 
                     if debug > 2:
                         print '\tFor 1th duration, value generated: {}'.format(duration)
@@ -773,8 +859,12 @@ class CC(multiprocessing.Process):
                         self.rel_median = rel_median
                         self.prob_longest_state = prob_longest_state
 
+                        # Do we have a delay to wait for??????
+                        if self.delay_in_start:
+                            self.asleep(self.delay_in_start)
+
                         # Wait t1
-                        self.next_time_to_wait.append(t1)
+                        self.nexts_times_to_wait.append(t1)
                         # If t1 is greater than the bigger value of the third time binn histogram, we should compensate
                         if t1 > self.ttb[-1]:
                             try:
@@ -785,11 +875,11 @@ class CC(multiprocessing.Process):
                             except:
                                 # No sth stored! So just wait between 5 seconds mu with stdev 1
                                 value_to_compensate = random.gauss(5,1)
-                            self.next_time_to_wait.append( value_to_compensate )
+                            self.nexts_times_to_wait.append( value_to_compensate )
                             self.need_to_compensate = False
 
                         # Wait t2
-                        self.next_time_to_wait.append(t2)
+                        self.nexts_times_to_wait.append(t2)
                         # If t2 is greater than the bigger value of the third time binn histogram, we should compensate
                         if t2 > self.ttb[-1]:
                             try:
@@ -800,7 +890,7 @@ class CC(multiprocessing.Process):
                             except:
                                 # No sth stored! So just wait between 5 seconds mu with stdev 1
                                 value_to_compensate = random.gauss(5,1)
-                            self.next_time_to_wait.append( value_to_compensate )
+                            self.nexts_times_to_wait.append( value_to_compensate )
                             self.need_to_compensate = False
                        
                 except:
@@ -811,8 +901,8 @@ class CC(multiprocessing.Process):
             try:
                 # Warning, without the initial_state, some chains can not generate the walk... like a bug in the libs?
                 initial_state = p.choose()
-                if self.length_of_state != 0:
-                    self.states = P.walk(self.length_of_state, start=initial_state)
+                if self.length_of_state_in_flows > 0:
+                    self.states = P.walk(self.length_of_state_in_flows, start=initial_state)
                     # We dont want to generate states 0. They are only a mark for a timeout. The timeouts will be generated alone with the times.
                     self.states[:] = (value for value in self.states if value != '0')
                     # This is the correct order of insertion, because of the 0
@@ -849,12 +939,9 @@ class CC(multiprocessing.Process):
             if debug:
                 print '\t\t\tCC: started'
 
-
-            # How should i select the type of CC behavior??? from a list? from command line? from a config file?
-
             while (True):
                 # Check if we have msg from botnet
-                if not self.qbot_CC.empty():
+                if not self.qbot_CC.empty() and self.running:
                     order = self.qbot_CC.get(0.1)
 
                     if order == 'Start':
@@ -866,7 +953,8 @@ class CC(multiprocessing.Process):
                         self.read_mcmodels()
 
                         self.CC_initialized = True
-                        
+                        self.running = True
+
                         # Tell the bot we are ready to continue
                         self.qbot_CC.task_done()
 
@@ -879,7 +967,8 @@ class CC(multiprocessing.Process):
                         self.qbot_CC.task_done()
                         break
 
-                elif self.CC_initialized:
+                elif self.CC_initialized and self.running:
+
                     # No orders, so search for the next state and generate the NetFlows
                     try:
                         self.go_next_state()
@@ -889,7 +978,6 @@ class CC(multiprocessing.Process):
                         if debug:
                             print '\t\t\tCC stopped because the end of states.'
                         self.qbot_CC.put('Stopping')
-                        #self.qbot_CC.join()
                         break
 
                     # For that letter and our current label, get the values for the netflows
@@ -897,12 +985,16 @@ class CC(multiprocessing.Process):
                         print 'Current state: {}'.format(self.current_state)
                     (time, duration, size) = self.get_model_values_for_this_state()
                     # Send the netflow using those values.
-                    sleep_time = self.build_netflow(time, duration, size)
-                    if debug:
-                        print 'Sleeping: {}'.format(sleep_time)
+                    self.build_netflow(duration, size)
+                    sleep_time = self.compute_sleep_time(time)
                     
                     # Sleep
                     self.asleep(sleep_time)
+                elif not self.running:
+                    if debug:
+                        print '\t\t\tCC stopped because the end of time.'
+                    self.qbot_CC.put('Stopping')
+                    break
 
 
         except KeyboardInterrupt:
