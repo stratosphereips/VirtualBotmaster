@@ -213,10 +213,10 @@ class CC(multiprocessing.Process):
         """
         try:
             global debug
-
+            
             if self.current_source_port >= self.lower_source_port and self.current_source_port < self.upper_source_port :
                 self.current_source_port += 1
-            elif self.current_source_port == self.upper_source_port:
+            elif self.current_source_port == self.upper_source_port and self.current_source_port != self.lower_source_port:
                 self.current_source_port = self.current_source_port + 1
             else:
                 self.current_source_port = self.current_source_port
@@ -500,11 +500,12 @@ class CC(multiprocessing.Process):
                 self.lower_source_port = self.malware[0]
                 self.upper_source_port = self.malware[1]
             elif type(self.srcport) is str and int(self.srcport) >= 0 and int(self.srcport) <= 65535:
-                self.lower_source_port = self.srcport[0]
-                self.upper_source_port = self.srcport[1]
+                self.lower_source_port = int(self.srcport)
+                self.upper_source_port = int(self.srcport)
             else:
                 self.lower_source_port = 1030
                 self.upper_source_port = 1030
+            self.current_source_port = self.lower_source_port 
 
 
             # For the time being, always 0
