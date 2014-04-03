@@ -435,7 +435,9 @@ class CC(multiprocessing.Process):
             # Select the values for each field of the flow according to the Markov Chain
             # StartTime Dur Proto SrcAddr Sport Dir DstAddr Dport State sTos dTos TotPkts TotBytes Label
             starttime = str(self.bt)
-            dur = str('{:.3f}'.format(duration))
+
+            # If we have a duration adjustment, use it
+            dur = str('{:.3f}'.format(duration * self.duration_adjustment))
             proto = self.proto
             srcaddr = self.srcip
             self.get_source_port()
@@ -446,8 +448,12 @@ class CC(multiprocessing.Process):
             self.get_flow_state()
             state = self.protostate
             tos = self.tos
-            packets = str(self.get_packets_from_bytes(size))
-            bytes = str(int(size))
+            # If we have a size adjustment, use it
+            size_adjusted = int(size * self.size_adjustment)
+            if size_adjusted <= 41:
+                size_adjusted = 41
+            bytes = str(size_adjusted)
+            packets = str(self.get_packets_from_bytes(size_adjusted))
             label = self.label
 
             flow = starttime + self.flow_separator + dur + self.flow_separator + proto + self.flow_separator + srcaddr + self.flow_separator + sport + self.flow_separator + dir + self.flow_separator + dstaddr + self.flow_separator + dport + self.flow_separator + state + self.flow_separator + tos + self.flow_separator + packets + self.flow_separator + bytes + self.flow_separator + label
@@ -482,10 +488,8 @@ class CC(multiprocessing.Process):
                 sleep_time = self.nexts_times_to_wait.popleft()
 
                 # Do we have a time adjustment from the config file?
-                #print '\tOriginal sleep time: {}.'.format(sleep_time) 
                 sleep_time = sleep_time * self.times_adjustment
-                #print '\tValue adjusted: {}'.format(sleep_time) 
-                # Do not adjust the compensation times?
+                # Do not adjust the compensation times.
                 
                 self.length_of_state_in_time -= sleep_time
                 if self.length_of_state_in_time <= 0:
@@ -557,7 +561,8 @@ class CC(multiprocessing.Process):
                 self.packets_to_bytes_ratio = config.getfloat('CC', 'packets_to_bytes_ratio')
                 self.delay_in_start_vector = config.get('CC', 'delay_in_start').split(',')
                 self.times_adjustment = config.getfloat('CC', 'times_adjustment')
-                
+                self.duration_adjustment = config.getfloat('CC', 'duration_adjustment')
+                self.size_adjustment = config.getfloat('CC', 'size_adjustment')
             except:
                 print 'Some critical error reading in the config file for the CC. Maybe some syntax error.'
                 sys.exit(-1)
