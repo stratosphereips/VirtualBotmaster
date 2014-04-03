@@ -385,13 +385,15 @@ class CC(multiprocessing.Process):
                 hist_prob = hist[selected_bin - 1]
                 #if debug:
                     #print '\tGen Prob: {}, hist prob: {}'.format(prob, hist_prob)
+
+
+                # If the value selected is less than the max value 
                 if hist_prob > prob:
+
+
                     if debug > 2:
                         print '\tValue {} selected with prob {}'.format(value, prob)
 
-                    # Do we have a time adjustment from the config file?
-                    if type == 'time':
-                        value = value * self.times_adjustment
                     return value
                 else:
                     selected_bin = False
@@ -410,12 +412,19 @@ class CC(multiprocessing.Process):
         """
         Sleep time that can be accelerated
         """
-        time.sleep(t/self.accel)
-        time_diff = timedelta(seconds=t)
-        time_diff = timedelta(seconds=t)
-        self.bt += time_diff
-        #if debug:
-            #print 'Real time: {}, Botnet time: {}'.format(datetime.now(), self.bt)
+        try:
+            time.sleep(t/self.accel)
+            time_diff = timedelta(seconds=t)
+            self.bt += time_diff
+            #if debug:
+                #print 'Real time: {}, Botnet time: {}'.format(datetime.now(), self.bt)
+        except Exception as inst:
+            if debug:
+                print '\tProblem with asleep in CC class. Maybe trying to sleep a negative time?'
+            print type(inst)     # the exception instance
+            print inst.args      # arguments stored in .args
+            print inst           # __str__ allows args to printed directly
+            sys.exit(1)
 
 
     def build_netflow(self, duration, size):
@@ -471,6 +480,12 @@ class CC(multiprocessing.Process):
 
                 # This is the t to wait now
                 sleep_time = self.nexts_times_to_wait.popleft()
+
+                # Do we have a time adjustment from the config file?
+                #print '\tOriginal sleep time: {}.'.format(sleep_time) 
+                sleep_time = sleep_time * self.times_adjustment
+                #print '\tValue adjusted: {}'.format(sleep_time) 
+                # Do not adjust the compensation times?
                 
                 self.length_of_state_in_time -= sleep_time
                 if self.length_of_state_in_time <= 0:
