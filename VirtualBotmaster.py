@@ -47,7 +47,7 @@ import math
 ####################
 # Global Variables
 debug = 0
-vernum = "0.1"
+vernum = "0.2"
 #########
 
 
@@ -90,6 +90,8 @@ class Stop(Exception):
 
 
 
+# Network Class
+###############
 class Network(multiprocessing.Process):
     """
     A class thread to run the output in the network
@@ -139,17 +141,23 @@ class Network(multiprocessing.Process):
 
 
 
+# CC Class
+##########
 class CC(multiprocessing.Process):
     """
     A class thread to run a CC
     """
     global debug
-    def __init__(self, accel, qbot_CC, qnetwork, conf_file):
+    def __init__(self, accel, qbot_CC, qnetwork, conf_file, srcip, CCname):
         multiprocessing.Process.__init__(self)
         self.qbot_CC = qbot_CC
         self.qnetwork = qnetwork
         self.accel = float(accel)
         self.conf_file = conf_file
+        self.CCname = CCname
+        
+        # The srcip is send by the bot
+        self.srcip = srcip
 
         self.CC_initialized = False
 
@@ -306,7 +314,7 @@ class CC(multiprocessing.Process):
         """
         try:
             global debug
-            if debug:
+            if debug > 1:
                 print 'Normalizing the hists.'
 
             for hist in self.histograms:
@@ -375,13 +383,7 @@ class CC(multiprocessing.Process):
                     #print 'Value generated: {}. Is in bin #{}, Bins Value:{}'.format(value, selected_bin, bins[selected_bin])
 
                 #2 Generate a random probability between 0 and 1 for that value. If the prob is higher than the hist number for that value, then pick the value
-                #prob = random.randrange(0, 100) / 100.0
                 prob = random.random()
-                #print selected_bin
-                #print len(hist)
-                #print hist
-                #print len(bins)
-                #print bins
                 hist_prob = hist[selected_bin - 1]
                 #if debug:
                     #print '\tGen Prob: {}, hist prob: {}'.format(prob, hist_prob)
@@ -497,8 +499,8 @@ class CC(multiprocessing.Process):
                         print 'Run out of time. Stopping the CC.'
                     self.running = False
                         
-                if debug:
-                    print 'Sleeping: {}'.format(sleep_time)
+                #if debug > 1:
+                    #print 'Sleeping: {}'.format(sleep_time)
 
 
                 if debug > 1:
@@ -542,27 +544,24 @@ class CC(multiprocessing.Process):
         """
         try:
             global debug
-            if debug:
-                print 'Reading the configuration file: {}'.format(self.conf_file)
+            if debug > 1:
+                print 'Reading the configuration file.'
 
-            config = ConfigParser.RawConfigParser()
-            config.read(self.conf_file)
             try:
-                self.length_of_state_in_flows = config.getint('CC', 'length_of_state_in_flows')
-                self.length_of_state_in_time = config.getint('CC', 'length_of_state_in_time') * 60 # Should be minutes.
-                self.label = config.get('CC', 'label')
-                self.model_folder = config.get('DEFAULT', 'markov_models_folder')
-                self.proto = config.get('CC', 'protocol')
-                self.srcip = config.get('Bot', 'srcip')
-                self.dstaddr = config.get('CC', 'dstip')
-                self.dstport = config.get('CC', 'dstport')
-                self.flow_separator = config.get('DEFAULT', 'flow_separator')
-                self.srcport = config.get('CC', 'srcport')
-                self.packets_to_bytes_ratio = config.getfloat('CC', 'packets_to_bytes_ratio')
-                self.delay_in_start_vector = config.get('CC', 'delay_in_start').split(',')
-                self.times_adjustment = config.getfloat('CC', 'times_adjustment')
-                self.duration_adjustment = config.getfloat('CC', 'duration_adjustment')
-                self.size_adjustment = config.getfloat('CC', 'size_adjustment')
+                self.length_of_state_in_flows = self.conf_file.getint(self.CCname, 'length_of_state_in_flows')
+                self.length_of_state_in_time = self.conf_file.getint(self.CCname, 'length_of_state_in_time') * 60 # Should be minutes.
+                self.label = self.conf_file.get(self.CCname, 'label')
+                self.model_folder = self.conf_file.get('DEFAULT', 'markov_models_folder')
+                self.proto = self.conf_file.get(self.CCname, 'protocol')
+                self.dstaddr = self.conf_file.get(self.CCname, 'dstip')
+                self.dstport = self.conf_file.get(self.CCname, 'dstport')
+                self.flow_separator = self.conf_file.get('DEFAULT', 'flow_separator')
+                self.srcport = self.conf_file.get(self.CCname, 'srcport')
+                self.packets_to_bytes_ratio = self.conf_file.getfloat(self.CCname, 'packets_to_bytes_ratio')
+                self.delay_in_start_vector = self.conf_file.get(self.CCname, 'delay_in_start').split(',')
+                self.times_adjustment = self.conf_file.getfloat(self.CCname, 'times_adjustment')
+                self.duration_adjustment = self.conf_file.getfloat(self.CCname, 'duration_adjustment')
+                self.size_adjustment = self.conf_file.getfloat(self.CCname, 'size_adjustment')
             except:
                 print 'Some critical error reading in the config file for the CC. Maybe some syntax error.'
                 sys.exit(-1)
@@ -576,7 +575,7 @@ class CC(multiprocessing.Process):
                 # By default TCP
                 label_protocol = "TCP"
                 if debug:
-                    print 'Warning! No proto in the label.!'
+                    print 'Warning! No proto in the label {} of CC {}!'.format(self.label, self.CCname)
 
             # Process the proto
             if self.proto == 'Default':
@@ -620,7 +619,7 @@ class CC(multiprocessing.Process):
 
 
             if debug:
-                print 'Label for CC: {}'.format(self.label)
+                print 'Label for CC {}: {}'.format(self.CCname ,self.label)
 
 
         except Exception as inst:
@@ -764,7 +763,7 @@ class CC(multiprocessing.Process):
             global debug
 
 
-            if debug:
+            if debug > 1:
                 print 'Reading the histograms...'
             try:
                 file_name = self.model_folder+'/labels.histograms'
@@ -815,7 +814,7 @@ class CC(multiprocessing.Process):
         try:
             global debug
 
-            if debug:
+            if debug > 1:
                 print 'Reading the models from folder: {}'.format(self.model_folder)
 
             # Read all the models
@@ -940,7 +939,7 @@ class CC(multiprocessing.Process):
             except UnboundLocalError:
                 print 'Error in the MC stored for this lable. Change it.'
                 sys.exit(-1)
-            if debug > 0:
+            if debug > 1:
                 print 'States generated: {} ({})'.format(self.states, len(self.states))
 
 
@@ -957,7 +956,7 @@ class CC(multiprocessing.Process):
         try:
 
             if debug:
-                print '\t\t\tCC: started'
+                print '\t\t\tCC {} started'.format(self.CCname)
 
             while (True):
                 # Check if we have msg from botnet
@@ -983,7 +982,7 @@ class CC(multiprocessing.Process):
 
                     elif order == 'Stop':
                         if debug:
-                            print '\t\t\tCC: stopping.'
+                            print '\t\t\tCC {}: stopping.'.format(self.CCname)
                         self.qbot_CC.task_done()
                         break
 
@@ -996,12 +995,12 @@ class CC(multiprocessing.Process):
                     except StopIteration:
                         # No more letters, so we are dead.
                         if debug:
-                            print '\t\t\tCC stopped because the end of states.'
+                            print '\t\t\tCC {} stopped because there are no more states.'.format(self.CCname)
                         self.qbot_CC.put('Stopping')
                         break
 
                     # For that letter and our current label, get the values for the netflows
-                    if debug:
+                    if debug > 1:
                         print 'Current state: {}'.format(self.current_state)
                     (time, duration, size) = self.get_model_values_for_this_state()
                     # Send the netflow using those values.
@@ -1012,14 +1011,14 @@ class CC(multiprocessing.Process):
                     self.asleep(sleep_time)
                 elif not self.running:
                     if debug:
-                        print '\t\t\tCC stopped because the end of time.'
+                        print '\t\t\tCC {} stopped because the end of time.'.format(self.CCname)
                     self.qbot_CC.put('Stopping')
                     break
 
 
         except KeyboardInterrupt:
             if debug:
-                print '\t\t\tCC stopped.'
+                print '\t\t\tCC {} stopped.'.format(self.CCname)
             raise
         except Exception as inst:
             if debug:
@@ -1030,7 +1029,8 @@ class CC(multiprocessing.Process):
             sys.exit(1)
 
 
-
+# Bot class
+###########
 class Bot(multiprocessing.Process):
     """
     A class thread to run the bot
@@ -1043,6 +1043,8 @@ class Bot(multiprocessing.Process):
         self.accel = float(accel)
         self.conf_file = conf_file
         self.bt = datetime.now()
+        self.cc_queues = {}
+        self.cc_objects = {}
 
     def asleep(self,t):
         """
@@ -1053,11 +1055,40 @@ class Bot(multiprocessing.Process):
         self.bt += time_diff
 
 
+    def read_conf(self):
+        """
+        Read the conf and load the values
+        """
+        try:
+            global debug
+            if debug > 1:
+                print 'Reading the configuration file.'
+
+            try:
+                self.srcip = self.conf_file.get('Bot', 'srcip')
+                self.commands_and_controls = self.conf_file.get('Bot', 'commands_and_controls').split(',')
+            except:
+                print 'Some critical error reading in the config file for the CC. Maybe some syntax error.'
+                sys.exit(-1)
+
+        except Exception as inst:
+            if debug:
+                print '\tProblem with read_conf in Bot class'
+            print type(inst)     # the exception instance
+            print inst.args      # arguments stored in .args
+            print inst           # __str__ allows args to printed directly
+            sys.exit(1)
+
+
+
     def run(self):
         try:
 
             if debug:
                 print '\t\tBot: started'
+
+            # Read the conf
+            self.read_conf()
 
             while (True):
                 # Check if we have msg from botnet
@@ -1065,19 +1096,25 @@ class Bot(multiprocessing.Process):
                     order = self.qbotnet_bot.get(0.1)
                     if order == 'Start':
 
-                        # Create the CC when the bot starts
-                        ###############
-                        # Create the queue
-                        self.qbot_CC = JoinableQueue()
-                        
-                        # Create the thread
-                        self.cc1 = CC(self.accel, self.qbot_CC, self.qnetwork, self.conf_file)
-                        self.cc1.start()
-    
-                        # Test the network
-                        self.qbot_CC.put(order)
-                        # Wait for the CC to initialize
-                        self.qbot_CC.join()
+                        # Create all the CCs when the bot starts
+                        ########################################
+                        for CCname in self.commands_and_controls:
+                            if debug > 1:
+                                print 'Bot: Starting CC {}'.format(CCname)
+
+                            # Create the queue
+                            self.cc_queues[CCname] = JoinableQueue()
+                            
+                            # Create the thread
+                            self.cc_objects[CCname] = CC(self.accel, self.cc_queues[CCname], self.qnetwork, self.conf_file, self.srcip, CCname)
+                            self.cc_objects[CCname].start()
+        
+                            # Start the CC
+                            self.cc_queues[CCname].put(order)
+                            # Wait for each CC to initialize
+                            self.cc_queues[CCname].join()
+                            if debug > 1:
+                                print 'Bot: End Starting CC {}'.format(CCname)
 
                         # Tell the botnet we are ready to continue
                         self.qbotnet_bot.task_done()
@@ -1085,27 +1122,33 @@ class Bot(multiprocessing.Process):
                     elif order == 'Stop':
                         if debug:
                             print '\t\tBot: stopping.'
-                        self.qbot_CC.put(order)
-                        # What is this task_done for?
+                        for CCname in self.commands_and_controls:
+                            self.cc_queues[CCname].put(order)
+
+                        # Tell the botnet we are done stopping the CCs
                         self.qbotnet_bot.task_done()
                         break
 
-                # Check if we have msg from cc
-                if not self.qbot_CC.empty():
-                    order = self.qbot_CC.get(0.1)
-                    if order == 'Stopping':
-                        # The CC has stopped. So stop. Be careful when we have multiple CCs.
-                        if debug:
-                            print '\t\tBot: stopping because CC stopped.'
-                        self.qbot_CC.task_done()
-                        self.qbotnet_bot.put('Stopping')
-                        break
+                # Check if we have msg from CCs
+                for CCname in self.cc_queues:
+                    if not self.cc_queues[CCname].empty():
+                        order = self.cc_queues[CCname].get(0.1)
+                        if order == 'Stopping':
+                            self.cc_queues[CCname].task_done()
+                            self.cc_objects[CCname] = False
+
+                # If all the CC are dead, exit
+                if self.cc_objects.values().count(False) == len(self.cc_objects):
+                    # The CCs are all dead, just exit
+                    if debug:
+                        print '\t\tBot: stopping because all the CCs had stopped.'
+                    self.qbotnet_bot.put('Stopping')
+                    break
+
                 else:
                     #if debug:
                     #    print '\t\tBot: Idle...'
                     pass
-            #if debug:
-            #    print '\t\tBot: out.'
 
 
         except KeyboardInterrupt:
@@ -1222,16 +1265,8 @@ class BotMaster(multiprocessing.Process):
         self.accel = float(accel)
         self.conf_file = conf_file
         self.bt = datetime.now()
-        self.init_states()
-
-    def init_states(self):
-        """
-        Define the states and set the iterator
-        """
-        #states = ['Start','Nothing','Nothing','Nothing','Nothing','Nothing', 'Stop']
-        states = ['Start','Nothing','Nothing','Nothing','Nothing','Nothing']
-        self.iter_states = iter(states)
-
+        self.transition_times = []
+        self.states = []
 
     def get_state(self):
         """
@@ -1260,14 +1295,44 @@ class BotMaster(multiprocessing.Process):
         # Get a time with gauss mu=10 and std=1
         # 24hs = 1440
         # 1hs = 60
-        t = random.gauss(1440,1)
+        t = random.gauss(float(self.transition_times[0]),float(self.transition_times[1]))
         self.asleep(t * 60) # Should be minutes
+
+
+    def read_conf(self):
+        """
+        Read the conf and load the values
+        """
+        try:
+            global debug
+            if debug > 1:
+                print 'Botmaster. Reading the configuration file'
+
+            try:
+                self.states = self.conf_file.get('BotMaster', 'states_transitions').split(',')
+                self.transition_times = self.conf_file.get('BotMaster', 'transition_time').split(',')
+            except:
+                print 'Some critical error reading in the config file for the botmaster. Maybe some syntax error.'
+                sys.exit(-1)
+
+            # Create the iterator
+            self.iter_states = iter(self.states)
+
+        except Exception as inst:
+            if debug:
+                print '\tProblem with read_conf in botmaster class'
+            print type(inst)     # the exception instance
+            print inst.args      # arguments stored in .args
+            print inst           # __str__ allows args to printed directly
+            sys.exit(1)
 
 
     def run(self):
         try:
             if debug:
                 print 'BotMaster: started'
+            # Read the conf
+            self.read_conf()
 
             # Create the network 
             ###################
@@ -1294,25 +1359,27 @@ class BotMaster(multiprocessing.Process):
                 newstate = self.get_state()
                 
 
-                if newstate == 'Start' or newstate == 'Stop':
-
+                if newstate == 'Start':
                     if debug:
                         print 'Botmaster: sending state {} to botnet. ({})'.format(newstate, self.bt)
                     self.qbotmaster_botnet.put(newstate)
-                    # Wait for the bonet to start before we continue. Mostly for keeping the time synchronized.
+                    # Wait for the botnet to finish starting before we continue. Mostly for keeping the time synchronized.
                     self.qbotmaster_botnet.join()
-                else:
+                elif newstate == 'Stop':
                     if debug:
-                        print 'Botmaster: doing state {}. ({})'.format(newstate,self.bt)
-
-                if newstate == 'Stop':
+                        print 'Botmaster: sending state {} to botnet. ({})'.format(newstate, self.bt)
                     self.qbotmaster_botnet.put(newstate)
                     self.qnetwork.put(newstate)
                     if debug:
                         print 'Botmaster: stopping. ({})'.format(self.bt)
                     break
+                else:
+                    # Trap all the other states...
+                    if debug:
+                        print 'Botmaster: doing state {}. ({})'.format(newstate,self.bt)
 
-                # Check if we have msg from botmaster
+
+                # Check if we have msg from botnet
                 if not self.qbotmaster_botnet.empty():
                     order = self.qbotmaster_botnet.get()
 
@@ -1360,8 +1427,8 @@ def main():
         if opt in ("-c", "--conf"): conf_file = str(arg)
     try:
 
-        if debug:
-            verbose = True
+        conf = ConfigParser.RawConfigParser()
+        conf.read(conf_file)
 
         # Read the config file
         ######################
@@ -1369,7 +1436,7 @@ def main():
 
         # Create the botmaster 
         ######################
-        botmaster = BotMaster(accel, conf_file)
+        botmaster = BotMaster(accel, conf)
         botmaster.start()
         botmaster.join()
         botmaster.terminate()
