@@ -101,6 +101,33 @@ class Network(multiprocessing.Process):
         multiprocessing.Process.__init__(self)
         self.qnetwork = qnetwork
         self.conf_file = conf_file
+        self.output_file = ""
+
+
+    def read_conf(self):
+        """
+        Read the conf and load the values
+        """
+        try:
+            global debug
+            if debug > 1:
+                print 'Reading the configuration file.'
+
+            try:
+                self.output_file = self.conf_file.get('Network', 'output_file')
+            except:
+                print 'Some critical error reading in the config file for the Network. Maybe some syntax error.'
+                sys.exit(-1)
+
+
+        except Exception as inst:
+            if debug:
+                print '\tProblem with read_conf in Network class'
+            print type(inst)     # the exception instance
+            print inst.args      # arguments stored in .args
+            print inst           # __str__ allows args to printed directly
+            sys.exit(1)
+
 
     def run(self):
         try:
@@ -108,19 +135,34 @@ class Network(multiprocessing.Process):
             if debug:
                 print 'Network thread Started'
 
+            # Read conf
+            self.read_conf()
+
+            if self.output_file:
+                output = open(self.output_file, 'w')
+
             while True:
                 flow = self.qnetwork.get()
                 
                 # If we are initializing, tell when we are done.
                 if flow == 'Start':
                     self.qnetwork.task_done()
-                    print 'StartTime,Dur,Proto,SrcAddr,Sport,Dir,DstAddr,Dport,State,sTos,TotPkts,TotBytes,Label'
+                    if self.output_file:
+                        output.write('StartTime,Dur,Proto,SrcAddr,Sport,Dir,DstAddr,Dport,State,sTos,TotPkts,TotBytes,Label\n')
+                    else:
+                        print 'StartTime,Dur,Proto,SrcAddr,Sport,Dir,DstAddr,Dport,State,sTos,TotPkts,TotBytes,Label'
                     continue
                 if flow == 'Stop':
                     self.qnetwork.task_done()
                     break
                 else:
-                    print flow
+                    if self.output_file:
+                        output.write(flow+'\n')
+                    else:
+                        print flow
+
+            if self.output_file:
+                output.close()
 
         except KeyboardInterrupt:
             if debug:
