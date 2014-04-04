@@ -538,8 +538,9 @@ class CC(multiprocessing.Process):
                 self.length_of_state_in_time -= sleep_time
                 if self.length_of_state_in_time <= 0:
                     if debug > 0:
-                        print 'Run out of time. Stopping the CC.'
+                        print 'Run out of time. Stopping the CC {}.'.format(self.CCname)
                     self.running = False
+                    return 0
                         
                 #if debug > 1:
                     #print 'Sleeping: {}'.format(sleep_time)
@@ -920,10 +921,6 @@ class CC(multiprocessing.Process):
                         self.rel_median = rel_median
                         self.prob_longest_state = prob_longest_state
 
-                        # Do we have a delay to wait for??????
-                        if self.delay_in_start:
-                            self.asleep(self.delay_in_start)
-
                         # Wait t1
                         self.nexts_times_to_wait.append(t1)
                         # If t1 is greater than the bigger value of the third time binn histogram, we should compensate
@@ -1018,6 +1015,10 @@ class CC(multiprocessing.Process):
 
                         # Tell the bot we are ready to continue
                         self.qbot_CC.task_done()
+
+                        # Do we have a delay to wait for??????
+                        if self.delay_in_start:
+                            self.asleep(self.delay_in_start)
 
                     elif order == 'CommandActivity':
                         self.be_commandActivity()
