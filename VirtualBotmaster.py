@@ -413,8 +413,8 @@ class CC(multiprocessing.Process):
         try:
             global debug
 
-            #if debug:
-            #    print 'Getting a value from hist'
+            if debug > 3:
+                print 'Getting a value from hist {}, and bins {} for type {}'.format(hist, bins, type)
 
             min = bins[0]
             max = bins[-1]
@@ -453,8 +453,8 @@ class CC(multiprocessing.Process):
                 #2 Generate a random probability between 0 and 1 for that value. If the prob is higher than the hist number for that value, then pick the value
                 prob = random.random()
                 hist_prob = hist[selected_bin - 1]
-                #if debug:
-                    #print '\tGen Prob: {}, hist prob: {}'.format(prob, hist_prob)
+                if debug > 8:
+                    print '\tFor value: {}, Gen Prob: {}, hist prob: {}'.format(value, prob, hist_prob)
 
 
                 # If the value selected is less than the max value 
@@ -1242,6 +1242,9 @@ class Bot(multiprocessing.Process):
 
                         # Create all the CCs when the bot starts
                         ########################################
+                        if debug > 1:
+                            print 'Amount of CC to start: {}'.format(len(self.commands_and_controls))
+
                         for CCname in self.commands_and_controls:
                             if debug > 1:
                                 print 'Bot: Starting CC {}'.format(CCname)
