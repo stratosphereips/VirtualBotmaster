@@ -199,7 +199,7 @@ class CC(multiprocessing.Process):
         self.CCname = CCname
         
         # The srcip is send by the bot
-        self.srcip = srcip
+        self.srcaddr = srcip
 
         self.CC_initialized = False
 
@@ -287,6 +287,31 @@ class CC(multiprocessing.Process):
         except Exception as inst:
             if debug:
                 print '\tProblem with get_flow_state() in CC class'
+            print type(inst)     # the exception instance
+            print inst.args      # arguments stored in .args
+            print inst           # __str__ allows args to printed directly
+            sys.exit(1)
+
+
+    def get_srcdst_ratio(self):
+        """
+        Get the ratio between src and dst from the histogram.
+        """
+        try:
+            global debug
+            rh = self.histograms['rh']
+            ratio_value = float(self.get_a_value_from_hist(rh,self.rb, type='srcdstratio'))
+
+            if self.ratio_adjustment > 0 and self.ratio_adjustment < 1:
+                return_value = self.ratio_adjustment
+            else:
+                return_value = ratio_value
+
+            return return_value
+
+        except Exception as inst:
+            if debug:
+                print '\tProblem with get_srcdst_ratio() in CC class'
             print type(inst)     # the exception instance
             print inst.args      # arguments stored in .args
             print inst           # __str__ allows args to printed directly
@@ -398,9 +423,9 @@ class CC(multiprocessing.Process):
             value = False
             selected_bin = False
 
+
             # Repeat until we get a value
             while not selected_bin:
-                #value = random.randrange(min, max)
                 value = random.uniform(min, max)
 
                 # value (mostly because of time) can not be smaller than the next time to wait. 
@@ -420,6 +445,7 @@ class CC(multiprocessing.Process):
                     b += 1
                 if b == len(bins):
                     # Means that we didn't found a bin for this value. Make it equal to the last bin... means 'more' than the last bin.
+                    # Only used if the bin allows a grater value. Check the bin.
                     selected_bin = b
                 #if debug:
                     #print 'Value generated: {}. Is in bin #{}, Bins Value:{}'.format(value, selected_bin, bins[selected_bin])
@@ -434,9 +460,8 @@ class CC(multiprocessing.Process):
                 # If the value selected is less than the max value 
                 if hist_prob > prob:
 
-
                     if debug > 2:
-                        print '\tValue {} selected with prob {}'.format(value, prob)
+                        print '\tValue {} selected with prob {} for type {}'.format(value, prob, type)
 
                     return value
                 else:
@@ -476,33 +501,106 @@ class CC(multiprocessing.Process):
         Build the netflow and send it to the Network
         """
         try:
-            # Select the values for each field of the flow according to the Markov Chain
-            # StartTime Dur Proto SrcAddr Sport Dir DstAddr Dport State sTos dTos TotPkts TotBytes Label
-            starttime = str(self.bt)
 
-            # If we have a duration adjustment, use it
-            dur = str('{:.3f}'.format(duration * self.duration_adjustment))
-            proto = self.proto
-            srcaddr = self.srcip
-            self.get_source_port()
-            sport = str(self.current_source_port)
-            dir = "<->"
-            dstaddr = self.dstaddr
-            dport = self.dstport
-            self.get_flow_state()
-            state = self.protostate
-            tos = self.tos
-            # If we have a size adjustment, use it
-            size_adjusted = int(size * self.size_adjustment)
-            if size_adjusted <= 41:
-                size_adjusted = 41
-            bytes = str(size_adjusted)
-            packets = str(self.get_packets_from_bytes(size_adjusted))
-            label = self.label
+            if self.bidirectional:
+                # Select the values for each field of the flow according to the Markov Chain
+                # StartTime Dur Proto SrcAddr Sport Dir DstAddr Dport State sTos dTos TotPkts TotBytes Label
+                starttime = str(self.bt)
 
-            flow = starttime + self.flow_separator + dur + self.flow_separator + proto + self.flow_separator + srcaddr + self.flow_separator + sport + self.flow_separator + dir + self.flow_separator + dstaddr + self.flow_separator + dport + self.flow_separator + state + self.flow_separator + tos + self.flow_separator + packets + self.flow_separator + bytes + self.flow_separator + label
+                # If we have a duration adjustment, use it
+                dur = str('{:.3f}'.format(duration * self.duration_adjustment))
+                proto = self.proto
+                srcaddr = self.srcaddr
+                self.get_source_port()
+                sport = str(self.current_source_port)
+                dir = "<->"
+                dstaddr = self.dstaddr
+                dport = self.dstport
+                self.get_flow_state()
+                state = self.protostate
+                tos = self.tos
+                # If we have a size adjustment, use it
+                size_adjusted = int(size * self.size_adjustment)
+                if size_adjusted <= 41:
+                    size_adjusted = 41
+                bytes = str(size_adjusted)
+                packets = str(self.get_packets_from_bytes(size_adjusted))
+                label = self.label
 
-            self.qnetwork.put(flow)
+                flow = starttime + self.flow_separator + dur + self.flow_separator + proto + self.flow_separator + srcaddr + self.flow_separator + sport + self.flow_separator + dir + self.flow_separator + dstaddr + self.flow_separator + dport + self.flow_separator + state + self.flow_separator + tos + self.flow_separator + packets + self.flow_separator + bytes + self.flow_separator + label
+
+                self.qnetwork.put(flow)
+            elif not self.bidirectional:
+                # First flow
+                starttime = str(self.bt)
+
+                # If we have a duration adjustment, use it
+                dur = str('{:.3f}'.format(duration * self.duration_adjustment / 2))
+                proto = self.proto
+                srcaddr = self.srcaddr
+                self.get_source_port()
+                sport = str(self.current_source_port)
+                dir = "->"
+                dstaddr = self.dstaddr
+                dport = self.dstport
+                self.get_flow_state()
+                state = self.protostate.split('_')[0]
+                tos = self.tos
+                # Find the ratio of src and dst bytes
+                srcratio = self.get_srcdst_ratio()
+                # If we have a size adjustment, use it
+                size_adjusted = int(size * self.size_adjustment * srcratio)
+                if size_adjusted <= 41:
+                    size_adjusted = 41
+                bytes = str(size_adjusted)
+                packets = str(self.get_packets_from_bytes(size_adjusted))
+                label = self.label
+
+                flow = starttime + self.flow_separator + dur + self.flow_separator + proto + self.flow_separator + srcaddr + self.flow_separator + sport + self.flow_separator + dir + self.flow_separator + dstaddr + self.flow_separator + dport + self.flow_separator + state + self.flow_separator + tos + self.flow_separator + packets + self.flow_separator + bytes + self.flow_separator + label
+
+                self.qnetwork.put(flow)
+
+
+                # If the label is an attempt, there is no flow comming back.
+                if not 'Attempt' in self.label:
+                    # Second flow
+                    starttime = str(self.bt)
+
+                    # If we have a duration adjustment, use it
+                    dur = str('{:.3f}'.format(duration * self.duration_adjustment / 2))
+                    proto = self.proto
+                    # The other ip
+                    srcaddr = self.dstaddr
+                    # The other port
+                    sport = self.dstport
+                    dir = "<-"
+                    # The other ip
+                    dstaddr = self.srcaddr
+                    # The other port
+                    self.get_source_port()
+                    dport = str(self.current_source_port)
+                    self.get_flow_state()
+                    state = self.protostate.split('_')[1]
+                    tos = self.tos
+                    # Find the ratio of src and dst bytes. This is dst bytes, so it should be 1 - what the hist tell us.
+                    dstratio = 1 - srcratio
+                    # If we have a size adjustment, use it
+                    size_adjusted = int(size * self.size_adjustment * dstratio)
+                    if size_adjusted <= 41:
+                        size_adjusted = 41
+                    bytes = str(size_adjusted)
+                    packets = str(self.get_packets_from_bytes(size_adjusted))
+                    label = self.label
+
+                    flow = starttime + self.flow_separator + dur + self.flow_separator + proto + self.flow_separator + srcaddr + self.flow_separator + sport + self.flow_separator + dir + self.flow_separator + dstaddr + self.flow_separator + dport + self.flow_separator + state + self.flow_separator + tos + self.flow_separator + packets + self.flow_separator + bytes + self.flow_separator + label
+
+                    self.qnetwork.put(flow)
+
+
+
+
+            # Not compute the counter flow
+
 
         except Exception as inst:
             if debug:
@@ -599,12 +697,14 @@ class CC(multiprocessing.Process):
                 self.dstaddr = self.conf_file.get(self.CCname, 'dstip')
                 self.dstport = self.conf_file.get(self.CCname, 'dstport')
                 self.flow_separator = self.conf_file.get('DEFAULT', 'flow_separator')
+                self.bidirectional = self.conf_file.getboolean('DEFAULT', 'bidirectional')
                 self.srcport = self.conf_file.get(self.CCname, 'srcport')
                 self.packets_to_bytes_ratio = self.conf_file.getfloat(self.CCname, 'packets_to_bytes_ratio')
                 self.delay_in_start_vector = self.conf_file.get(self.CCname, 'delay_in_start').split(',')
                 self.times_adjustment = self.conf_file.getfloat(self.CCname, 'times_adjustment')
                 self.duration_adjustment = self.conf_file.getfloat(self.CCname, 'duration_adjustment')
                 self.size_adjustment = self.conf_file.getfloat(self.CCname, 'size_adjustment')
+                self.ratio_adjustment = self.conf_file.getfloat(self.CCname, 'ratio_adjustment')
             except:
                 print 'Some critical error reading in the config file for the CC. Maybe some syntax error.'
                 sys.exit(-1)
@@ -823,6 +923,7 @@ class CC(multiprocessing.Process):
                 self.fsb = cPickle.load(input)
                 self.ssb = cPickle.load(input)
                 self.tsb = cPickle.load(input)
+                self.rb = cPickle.load(input)
                 input.close()
                 self.histograms = histograms[self.label]
                 if debug > 2:
