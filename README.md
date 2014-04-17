@@ -11,3 +11,13 @@ Each part of the VirtualBotmaster, i.e. the Botmaster, the Botnet, the Bot and t
 
 All the states transitions and parameters of the flows can be generalized to evaluate how a detection method reacts to these changes. For example, you can change the periodicity between flows, the sizes of the flows according to a distribution function, the amount of C&C, the type of C&C, etc.
 
+
+Configuration
+=============
+All the configurations are in the VirtualBotmaster.conf file.
+You can generalize every parameter from that file.
+
+
+Example Usage
+=============
+./VirtualBotmaster.py -x 10000
