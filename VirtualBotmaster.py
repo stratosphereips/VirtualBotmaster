@@ -47,7 +47,7 @@ import math
 ####################
 # Global Variables
 debug = 0
-vernum = "0.2"
+vernum = "0.3"
 #########
 
 
@@ -224,15 +224,6 @@ class CC(multiprocessing.Process):
         self.iter_states = ""
 
         self.histograms = []
-        self.stb = []
-        self.ttb = []
-        self.ftb = []
-        self.fdb = []
-        self.sdb = []
-        self.tdb = []
-        self.fsb = []
-        self.ssb = []
-        self.tsb = []
 
         self.nexts_times_to_wait = deque([])
 
@@ -300,7 +291,8 @@ class CC(multiprocessing.Process):
         try:
             global debug
             rh = self.histograms['rh']
-            ratio_value = float(self.get_a_value_from_hist(rh,self.rb, type='srcdstratio'))
+            rb = self.histograms['rb']
+            ratio_value = float(self.get_a_value_from_hist(rh, rb, type='srcdstratio'))
 
             if self.ratio_adjustment > 0 and self.ratio_adjustment < 1:
                 return_value = self.ratio_adjustment
@@ -544,7 +536,10 @@ class CC(multiprocessing.Process):
                 dstaddr = self.dstaddr
                 dport = self.dstport
                 self.get_flow_state()
-                state = self.protostate.split('_')[0]
+                if 'TCP' in self.proto:
+                    state = self.protostate.split('_')[0]
+                else:
+                    state = self.protostate
                 tos = self.tos
                 # Find the ratio of src and dst bytes
                 srcratio = self.get_srcdst_ratio()
@@ -580,7 +575,10 @@ class CC(multiprocessing.Process):
                     self.get_source_port()
                     dport = str(self.current_source_port)
                     self.get_flow_state()
-                    state = self.protostate.split('_')[1]
+                    if 'TCP' in self.proto:
+                        state = self.protostate.split('_')[0]
+                    else:
+                        state = self.protostate
                     tos = self.tos
                     # Find the ratio of src and dst bytes. This is dst bytes, so it should be 1 - what the hist tell us.
                     dstratio = 1 - srcratio
@@ -632,8 +630,9 @@ class CC(multiprocessing.Process):
                 # Do we have a time adjustment from the config file?
                 sleep_time = sleep_time * self.times_adjustment
                 # Do not adjust the compensation times.
-                
-                self.length_of_state_in_time -= sleep_time
+               
+                # Rest the sleep time in minutes to the length also in minutes
+                self.length_of_state_in_time -= sleep_time 
                 if self.length_of_state_in_time <= 0:
                     if debug > 0:
                         print 'Run out of time. Stopping the CC {}.'.format(self.CCname)
@@ -653,7 +652,7 @@ class CC(multiprocessing.Process):
                         sth = self.histograms['sth']
                         value_to_compensate = -1
                         while value_to_compensate <= 0:
-                            value_to_compensate = self.get_a_value_from_hist(sth,self.stb, type='time')
+                            value_to_compensate = self.get_a_value_from_hist(sth, self.histograms['stb'], type='time')
                     except:
                         # No sth stored! So just wait between 5 seconds mu with stdev 1
                         value_to_compensate = random.gauss(5,1)
@@ -789,29 +788,32 @@ class CC(multiprocessing.Process):
                 # Second time histogram         
                 try:
                     sth = self.histograms['sth']
-                    time = self.get_a_value_from_hist(sth,self.stb, type='time')
+                    stb = self.histograms['stb']
+                    time = self.get_a_value_from_hist(sth, stb, type='time')
 
                     if debug > 2:
                         print '\tFor 2th time, value generated: {}'.format(time)
                 except:
-                    print 'Warning! A letter was generated from the MC that does not have a histogram stored... weird.'
+                    print 'Warning! A letter was generated from the MC that does not have a histogram stored... weird (fth).'
 
             elif self.current_state in 'ABCDEFGHI': 
                 # Third time histogram         
                 try:
                     tth = self.histograms['tth']
-                    time = self.get_a_value_from_hist(tth,self.ttb, type='time')
+                    ttb = self.histograms['ttb']
+                    time = self.get_a_value_from_hist(tth, ttb, type='time')
                     if debug > 2:
                         print '\tFor 3th time, value generated: {}'.format(time)
                 except:
-                    print 'Warning! A letter was generated from the MC that does not have a histogram stored... weird.'
+                    print 'Warning! A letter was generated from the MC that does not have a histogram stored... weird (sth).'
 
 
             elif self.current_state in 'rstuvwxyz':        
                 # Fourth time histogram   
                 try:
                     fth = self.histograms['fth']
-                    time = self.get_a_value_from_hist(fth,self.ftb, type='time')
+                    ftb = self.histograms['ftb']
+                    time = self.get_a_value_from_hist(fth, ftb, type='time')
 
                     # Time can not be smaller that the current time to wait
                     if debug > 2:
@@ -821,73 +823,83 @@ class CC(multiprocessing.Process):
                     self.need_to_compensate = True
 
                 except:
-                    print 'Warning! A letter was generated from the MC that does not have a histogram stored... weird.'
+                    print 'Warning! A letter was generated from the MC that does not have a histogram stored... weird (fth).'
 
             # Duration
             if self.current_state in '147adgADGrux': 
                 # First duration histogram
                 try:
                     fdh = self.histograms['fdh']
-                    duration = self.get_a_value_from_hist(fdh,self.fdb, type='duration')
+                    fdb = self.histograms['fdb']
+                    duration = self.get_a_value_from_hist(fdh, fdb, type='duration')
 
                     if debug > 2:
                         print '\tFor 1th duration, value generated: {}'.format(duration)
                 except:
-                    print 'Warning! A letter was generated from the MC that does not have a histogram stored... weird.'
+                    print 'Warning! A letter was generated from the MC that does not have a histogram stored... weird (fdh).'
 
             elif self.current_state in '258behBEHsvy':
                 # Second duration histogram
                 try:
                     sdh = self.histograms['sdh']
-                    duration = self.get_a_value_from_hist(sdh,self.sdb, type='duration')
+                    sdb = self.histograms['sdb']
+                    duration = self.get_a_value_from_hist(sdh, sdb, type='duration')
                     if debug > 2:
                         print '\tFor 2th duration, value generated: {}'.format(duration)
                 except:
-                    print 'Warning! A letter was generated from the MC that does not have a histogram stored... weird.'
+                    print 'Warning! A letter was generated from the MC that does not have a histogram stored... weird (sdh).'
 
             elif self.current_state in '369cfiCFItwz':
                 # Third duration histogram
                 try:
                     tdh = self.histograms['tdh']
-                    duration = self.get_a_value_from_hist(tdh,self.tdb, type='duration')
+                    tdb = self.histograms['tdb']
+                    duration = self.get_a_value_from_hist(tdh, tdb, type='duration')
                     if debug > 2:
                         print '\tFor 3th duration, value generated: {}'.format(duration)
                 except:
-                    print 'Warning! A letter was generated from the MC that does not have a histogram stored... weird.'
+                    print 'Warning! A letter was generated from the MC that does not have a histogram stored... weird (tdh).'
 
             # Size
             if self.current_state in '123abcABCrst':
                 # First size histogram
                 try:
                     fsh = self.histograms['fsh']
-                    size = self.get_a_value_from_hist(fsh,self.fsb, type='size')
+                    fsb = self.histograms['fsb']
+                    size = self.get_a_value_from_hist(fsh, fsb, type='size')
                     if debug > 2:
                         print '\tFor 3th size, value generated: {}'.format(size)
                 except:
-                    print 'Warning! A letter was generated from the MC that does not have a histogram stored... weird.'
+                    print 'Warning! A letter was generated from the MC that does not have a histogram stored... weird (fsh).'
 
             elif self.current_state in '456defDEFuvw':
                 # Second size histogram
                 try:
                     ssh = self.histograms['ssh']
-                    size = self.get_a_value_from_hist(ssh,self.ssb, type='size')
+                    ssb = self.histograms['ssb']
+                    size = self.get_a_value_from_hist(ssh, ssb, type='size')
                     if debug > 2:
                         print '\tFor 3th size, value generated: {}'.format(size)
                 except:
-                    print 'Warning! A letter was generated from the MC that does not have a histogram stored... weird.'
+                    print 'Warning! A letter was generated from the MC that does not have a histogram stored... weird (ssh).'
 
             elif self.current_state in '789ghiGHIxyz':
                 # Third size histogram
                 try:
                     tsh = self.histograms['tsh']
-                    size = self.get_a_value_from_hist(tsh,self.tsb, type='size')
+                    tsb = self.histograms['tsb']
+                    size = self.get_a_value_from_hist(tsh, tsb, type='size')
                     if debug > 2:
                         print '\tFor 3th size, value generated: {}'.format(size)
                 except:
-                    print 'Warning! A letter was generated from the MC that does not have a histogram stored... weird.'
+                    print 'Warning! A letter was generated from the MC that does not have a histogram stored... weird (tsh).'
    
             # Return
-            return (time,duration,size)
+            try:
+                return (time,duration,size)
+            except:
+                print "\tError. Maybe the label's model is lacking some histogram??? Not enough data to generate flows for this label: {}".format(self.label)
+                sys.exit(-1)
 
         except Exception as inst:
             if debug:
@@ -914,22 +926,13 @@ class CC(multiprocessing.Process):
                     print 'Reading histogram from file : {}'.format(file_name)
                 input = open(file_name, 'rb')
                 histograms = cPickle.load(input)
-                self.stb = cPickle.load(input)
-                self.ttb = cPickle.load(input)
-                self.ftb = cPickle.load(input)
-                self.fdb = cPickle.load(input)
-                self.sdb = cPickle.load(input)
-                self.tdb = cPickle.load(input)
-                self.fsb = cPickle.load(input)
-                self.ssb = cPickle.load(input)
-                self.tsb = cPickle.load(input)
-                self.rb = cPickle.load(input)
                 input.close()
                 self.histograms = histograms[self.label]
                 if debug > 2:
                     print '\tHistograms: {}'.format(self.histograms)
 
-                self.normalize_hists()
+                # Not needed anymore, they are already normalized
+                #self.normalize_hists()
 
             except:
                 print 'Error. The label {0} has no histogram stored.'.format(self.label)
@@ -1024,33 +1027,42 @@ class CC(multiprocessing.Process):
 
                         # Wait t1
                         self.nexts_times_to_wait.append(t1)
-                        # If t1 is greater than the bigger value of the third time binn histogram, we should compensate
-                        if t1 > self.ttb[-1]:
-                            try:
-                                sth = self.histograms['sth']
-                                value_to_compensate = -1
-                                while value_to_compensate <= 0:
-                                    value_to_compensate = self.get_a_value_from_hist(sth, self.stb, type='time')
-                            except:
-                                # No sth stored! So just wait between 5 seconds mu with stdev 1
-                                value_to_compensate = random.gauss(5,1)
-                            self.nexts_times_to_wait.append( value_to_compensate )
-                            self.need_to_compensate = False
 
-                        # Wait t2
-                        self.nexts_times_to_wait.append(t2)
-                        # If t2 is greater than the bigger value of the third time binn histogram, we should compensate
-                        if t2 > self.ttb[-1]:
-                            try:
-                                sth = self.histograms['sth']
-                                value_to_compensate = -1
-                                while value_to_compensate <= 0:
-                                    value_to_compensate = self.get_a_value_from_hist(sth, self.stb, type='time')
-                            except:
-                                # No sth stored! So just wait between 5 seconds mu with stdev 1
-                                value_to_compensate = random.gauss(5,1)
-                            self.nexts_times_to_wait.append( value_to_compensate )
-                            self.need_to_compensate = False
+                        # If t1 is greater than the bigger value of the third time binn histogram, we should compensate
+                        try:
+                            ttb = self.histograms['ttb']
+
+                            if t1 > ttb[-1]:
+                                try:
+                                    sth = self.histograms['sth']
+                                    stb = self.histograms['stb']
+                                    value_to_compensate = -1
+                                    while value_to_compensate <= 0:
+                                        value_to_compensate = self.get_a_value_from_hist(sth, stb, type='time')
+                                except:
+                                    # No sth stored! So just wait between 5 seconds mu with stdev 1
+                                    value_to_compensate = random.gauss(5,1)
+                                self.nexts_times_to_wait.append( value_to_compensate )
+                                self.need_to_compensate = False
+
+                            # Wait t2
+                            self.nexts_times_to_wait.append(t2)
+                            # If t2 is greater than the bigger value of the third time binn histogram, we should compensate
+                            if t2 > ttb[-1]:
+                                try:
+                                    sth = self.histograms['sth']
+                                    stb = self.histograms['stb']
+                                    value_to_compensate = -1
+                                    while value_to_compensate <= 0:
+                                        value_to_compensate = self.get_a_value_from_hist(sth, stb, type='time')
+                                except:
+                                    # No sth stored! So just wait between 5 seconds mu with stdev 1
+                                    value_to_compensate = random.gauss(5,1)
+                                self.nexts_times_to_wait.append( value_to_compensate )
+                                self.need_to_compensate = False
+                        except:
+                            if debug > 8:
+                                print 'This model does not have a ttb so, no compensation.'
                        
                 except:
                     print 'Error. The label {0} has no model stored.'.format(self.label)
@@ -1576,10 +1588,6 @@ def main():
 
         conf = ConfigParser.RawConfigParser()
         conf.read(conf_file)
-
-        # Read the config file
-        ######################
-        #botmaster.set_conf_file(conf_file)
 
         # Create the botmaster 
         ######################
