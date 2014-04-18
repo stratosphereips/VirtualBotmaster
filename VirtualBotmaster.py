@@ -41,6 +41,7 @@ try:
     import pykov
 except ImportError:
     print 'You need tht pykov libraries. Command "pip install pykov". Or download from : https://riccardoscalco.github.io/Pykov/'
+    sys.exit(-1)
 
 import operator
 import cPickle
