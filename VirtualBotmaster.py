@@ -40,7 +40,11 @@ import random
 try:
     import pykov
 except ImportError:
-    print 'You need tht pykov libraries. Command "pip install pykov". Or download from : https://riccardoscalco.github.io/Pykov/'
+    print 'You need tht pykov libraries and the sparse libraries. Download from : https://riccardoscalco.github.io/Pykov/, and https://sourceforge.net/projects/pysparse/files/latest/download'
+    print 'In debian-based systems: 
+    print 'pip install pykov'
+    print 'apt-get install sparse'
+    print 'If you don\'t have pip: apt-get install python-pip'
     sys.exit(-1)
 
 import operator
