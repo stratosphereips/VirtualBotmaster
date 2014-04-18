@@ -37,7 +37,11 @@ from multiprocessing import Queue
 from multiprocessing import JoinableQueue
 from collections import deque
 import random
-import pykov
+try:
+    import pykov
+except ImportError:
+    print 'You need tht pykov libraries. Command "pip install pykov". Or download from : https://riccardoscalco.github.io/Pykov/'
+
 import operator
 import cPickle
 import ConfigParser
